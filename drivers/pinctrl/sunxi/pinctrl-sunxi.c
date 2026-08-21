@@ -67,7 +67,9 @@ static u32 sunxi_bank_offset(const struct sunxi_pinctrl *pctl, u32 pin)
 {
 	u32 offset = 0;
 
-	if (pin >= PK_BASE) {
+	if (pctl->flags & SUNXI_PINCTRL_A733_LAYOUT) {
+		offset = 0x80;
+	} else if (pin >= PK_BASE) {
 		pin -= PK_BASE;
 		offset = PIO_BANK_K_OFFSET;
 	}
@@ -1107,7 +1109,7 @@ static int sunxi_pinctrl_irq_request_resources(struct irq_data *d)
 	muxval = (readl(pctl->membase + reg) & mask) >> shift;
 
 	/* Change muxing to GPIO INPUT mode if at reset value */
-	if (pctl->flags & SUNXI_PINCTRL_NEW_REG_LAYOUT)
+	if (pctl->flags & (SUNXI_PINCTRL_NEW_REG_LAYOUT | SUNXI_PINCTRL_A733_LAYOUT))
 		disabled_mux = SUN4I_FUNC_DISABLED_NEW;
 	else
 		disabled_mux = SUN4I_FUNC_DISABLED_OLD;
@@ -1589,7 +1591,11 @@ int sunxi_pinctrl_init_with_flags(struct platform_device *pdev,
 	pctl->dev = &pdev->dev;
 	pctl->desc = desc;
 	pctl->flags = flags;
-	if (flags & SUNXI_PINCTRL_NEW_REG_LAYOUT) {
+	if (flags & SUNXI_PINCTRL_A733_LAYOUT) {
+		pctl->bank_mem_size = 0x80;
+		pctl->pull_regs_offset = 0x30;
+		pctl->dlevel_field_width = 4;
+	} else if (flags & SUNXI_PINCTRL_NEW_REG_LAYOUT) {
 		pctl->bank_mem_size = D1_BANK_MEM_SIZE;
 		pctl->pull_regs_offset = D1_PULL_REGS_OFFSET;
 		pctl->dlevel_field_width = D1_DLEVEL_FIELD_WIDTH;

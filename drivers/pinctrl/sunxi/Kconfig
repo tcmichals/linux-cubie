@@ -142,3 +142,17 @@ config PINCTRL_SUN55I_A523_R
 	select PINCTRL_SUNXI
 
 endif
+
+config PINCTRL_SUN60I_A733
+	tristate "Support for the Allwinner A733 PIO"
+	default ARCH_SUNXI
+	depends on ARM64 || COMPILE_TEST
+	select PINCTRL_SUNXI
+	select PINCTRL_SUNXI_DT
+
+config PINCTRL_SUN60I_A733_R
+	tristate "Support for the Allwinner A733 R-PIO"
+	default ARCH_SUNXI
+	depends on ARM64 || COMPILE_TEST
+	select PINCTRL_SUNXI
+	select PINCTRL_SUNXI_DT

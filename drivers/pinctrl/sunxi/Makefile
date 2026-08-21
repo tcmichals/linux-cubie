@@ -31,3 +31,6 @@ obj-$(CONFIG_PINCTRL_SUN55I_A523)	+= pinctrl-sun55i-a523.o
 obj-$(CONFIG_PINCTRL_SUN55I_A523_R)	+= pinctrl-sun55i-a523-r.o
 obj-$(CONFIG_PINCTRL_SUN9I_A80)		+= pinctrl-sun9i-a80.o
 obj-$(CONFIG_PINCTRL_SUN9I_A80_R)	+= pinctrl-sun9i-a80-r.o
+
+obj-$(CONFIG_PINCTRL_SUN60I_A733) += pinctrl-sun60i-a733.o
+obj-$(CONFIG_PINCTRL_SUN60I_A733_R) += pinctrl-sun60i-a733-r.o
