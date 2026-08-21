@@ -79,3 +79,5 @@ sun8i-r-ccu-y			+= ccu-sun8i-r.o
 sun9i-a80-ccu-y			+= ccu-sun9i-a80.o
 sun9i-a80-de-ccu-y		+= ccu-sun9i-a80-de.o
 sun9i-a80-usb-ccu-y		+= ccu-sun9i-a80-usb.o
+obj-$(CONFIG_SUN60I_A733_CCU) += ccu-sun60i-a733.o
+obj-$(CONFIG_SUN60I_A733_R_CCU) += ccu-sun60i-a733-r.o

@@ -133,4 +133,18 @@ config SUN8I_R_CCU
 	default ARCH_SUNXI
 	depends on MACH_SUN8I || ARM64 || COMPILE_TEST
 
+config SUN60I_A733_CCU
+	tristate "Support for the Allwinner A733 CCU"
+	default ARCH_SUNXI
+	depends on ARM64 || COMPILE_TEST
+	select SUNXI_CCU_GATE
+	select SUNXI_CCU_MP
+	select SUNXI_CCU_NKMP
+
+config SUN60I_A733_R_CCU
+	tristate "Support for the Allwinner A733 PRCM CCU"
+	default ARCH_SUNXI
+	depends on ARM64 || COMPILE_TEST
+	select SUNXI_CCU_GATE
+
 endif
