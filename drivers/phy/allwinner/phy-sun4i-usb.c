@@ -278,7 +278,8 @@ static int sun4i_usb_phy_init(struct phy *_phy)
 	}
 
 	/* Some PHYs on some SoCs need the help of PHY2 to work. */
-	if (data->cfg->needs_phy2_siddq && phy->index != 2) {
+	if (data->cfg->needs_phy2_siddq && phy->index != 2 &&
+	    !IS_ERR_OR_NULL(data->phys[2].reset) && !IS_ERR_OR_NULL(data->phys[2].clk)) {
 		struct sun4i_usb_phy *phy2 = &data->phys[2];
 
 		ret = clk_prepare_enable(phy2->clk);
@@ -384,7 +385,8 @@ static int sun4i_usb_phy_exit(struct phy *_phy)
 		data->phy0_init = false;
 	}
 
-	if (data->cfg->needs_phy2_siddq && phy->index != 2) {
+	if (data->cfg->needs_phy2_siddq && phy->index != 2 &&
+	    !IS_ERR_OR_NULL(data->phys[2].reset) && !IS_ERR_OR_NULL(data->phys[2].clk)) {
 		struct sun4i_usb_phy *phy2 = &data->phys[2];
 
 		clk_disable_unprepare(phy2->clk);
@@ -787,7 +789,7 @@ static int sun4i_usb_phy_probe(struct platform_device *pdev)
 			continue;
 
 		snprintf(name, sizeof(name), "usb%d_reset", i);
-		phy->reset = devm_reset_control_get(dev, name);
+		phy->reset = devm_reset_control_get_shared(dev, name);
 		if (IS_ERR(phy->reset)) {
 			if (PTR_ERR(phy->reset) == -ENOENT)
 				break;
@@ -987,6 +989,15 @@ static const struct sun4i_usb_phy_cfg sun20i_d1_cfg = {
 	.siddq_in_base = true,
 };
 
+static const struct sun4i_usb_phy_cfg sun60i_a733_cfg = {
+	.disc_thresh = 3,
+	.phyctl_offset = REG_PHYCTL_A33,
+	.dedicated_clocks = true,
+	.hci_phy_ctl_clear = PHY_CTL_SIDDQ | PHY_CTL_H3_SIDDQ,
+	.phy0_dual_route = true,
+	.siddq_in_base = true,
+};
+
 static const struct sun4i_usb_phy_cfg sun50i_a64_cfg = {
 	.disc_thresh = 3,
 	.phyctl_offset = REG_PHYCTL_A33,
@@ -1025,6 +1036,8 @@ static const struct of_device_id sun4i_usb_phy_of_match[] = {
 	{ .compatible = "allwinner,sun8i-r40-usb-phy", .data = &sun8i_r40_cfg },
 	{ .compatible = "allwinner,sun8i-v3s-usb-phy", .data = &sun8i_v3s_cfg },
 	{ .compatible = "allwinner,sun20i-d1-usb-phy", .data = &sun20i_d1_cfg },
+	{ .compatible = "allwinner,sun55i-a523-usb-phy", .data = &sun20i_d1_cfg },
+	{ .compatible = "allwinner,sun60i-a733-usb-phy", .data = &sun60i_a733_cfg },
 	{ .compatible = "allwinner,sun50i-a64-usb-phy",
 	  .data = &sun50i_a64_cfg},
 	{ .compatible = "allwinner,sun50i-h6-usb-phy", .data = &sun50i_h6_cfg },
