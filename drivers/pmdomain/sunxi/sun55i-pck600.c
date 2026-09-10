@@ -164,14 +164,34 @@ static int sunxi_pck600_probe(struct platform_device *pdev)
 
 	for (i = 0; i < desc->num_domains; i++) {
 		struct sunxi_pck600_pd *pd = &pck->pds[i];
+		u32 pstate;
+		bool is_off;
 
+		pd->pck = pck;
 		pd->genpd.name = desc->pd_names[i];
 		pd->genpd.power_off = sunxi_pck600_power_off;
 		pd->genpd.power_on = sunxi_pck600_power_on;
 		pd->base = base + PPU_REG_SIZE * i;
 
 		sunxi_pck600_pd_setup(pd, desc);
-		ret = pm_genpd_init(&pd->genpd, NULL, false);
+
+		pstate = readl(pd->base + PPU_PWSR);
+		is_off = (FIELD_GET(PPU_PWR_STATUS, pstate) != PPU_POWER_MODE_ON);
+
+		if (!strcmp(desc->pd_names[i], "USB2")) {
+			ret = sunxi_pck600_pd_set_power(pd, true);
+			if (ret)
+				dev_err(dev, "failed to power on USB2 domain: %d\n", ret);
+			pd->genpd.flags |= GENPD_FLAG_ALWAYS_ON;
+			is_off = false;
+		}
+
+		dev_info(dev, "domain \"%s\" (id %d) pstate=0x%x, %s%s\n",
+			 pd->genpd.name, i, readl(pd->base + PPU_PWSR),
+			 is_off ? "off" : "on",
+			 (pd->genpd.flags & GENPD_FLAG_ALWAYS_ON) ? " [always-on]" : "");
+
+		ret = pm_genpd_init(&pd->genpd, NULL, is_off);
 		if (ret) {
 			dev_err_probe(dev, ret, "failed to initialize power domain\n");
 			goto err_remove_pds;
