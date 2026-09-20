@@ -332,6 +332,12 @@ config MICROSEMI_PHY
 	help
 	  Currently supports VSC8514, VSC8530, VSC8531, VSC8540 and VSC8541 PHYs
 
+config MAXIO_PHY
+	tristate "Maxio PHYs"
+	help
+	  Enables support for Maxio network PHYs.
+	  Currently supports MAE0621A/B Gigabit Ethernet PHYs.
+
 config MOTORCOMM_PHY
 	tristate "Motorcomm PHYs"
 	help
