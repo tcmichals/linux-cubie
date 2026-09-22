@@ -885,7 +885,6 @@ static const struct of_device_id sunxi_rproc_of_match[] = {
 	{ .compatible = "allwinner,sun55i-a523-rproc", .data = &sun55i_riscv_cfg },
 	{ .compatible = "allwinner,sun55i-a527-rproc", .data = &sun55i_riscv_cfg },
 	{ .compatible = "allwinner,sun55i-t527-rproc", .data = &sun55i_riscv_cfg },
-	{ .compatible = "allwinner,sunxi-rproc", .data = &sun55i_riscv_cfg },
 	{ /* sentinel */ }
 };
 MODULE_DEVICE_TABLE(of, sunxi_rproc_of_match);

@@ -46,7 +46,7 @@ struct test_sunxi_rproc {
  * Must be kept in sync with the driver. Divergence is a bug.
  */
 static void *test_da_to_va(struct test_sunxi_rproc *priv,
-			    u64 da, size_t len, bool *is_iomem)
+			   u64 da, size_t len, bool *is_iomem)
 {
 	if (len == 0)
 		return NULL;
@@ -201,7 +201,7 @@ static void test_da_to_va_sram_space0_core_da_offset(struct kunit *test)
 	va = test_da_to_va(priv, 0x3FFC0000 + 0x1000, 0x100, NULL);
 	KUNIT_ASSERT_NOT_NULL(test, va);
 	KUNIT_EXPECT_PTR_EQ(test, va,
-			     (void *)((unsigned long)FAKE_SRAM_VA + 0x1000));
+			    (void *)((unsigned long)FAKE_SRAM_VA + 0x1000));
 }
 
 /* ===== SRAM Space 0: Host physical address view ===== */
@@ -226,7 +226,7 @@ static void test_da_to_va_sram_space0_host_phys_offset(struct kunit *test)
 	va = test_da_to_va(priv, A527_SRAM_PHYS + 0x2000, 0x100, NULL);
 	KUNIT_ASSERT_NOT_NULL(test, va);
 	KUNIT_EXPECT_PTR_EQ(test, va,
-			     (void *)((unsigned long)FAKE_SRAM_VA + 0x2000));
+			    (void *)((unsigned long)FAKE_SRAM_VA + 0x2000));
 }
 
 /* ===== SRAM Space 0: Alternate DA 0x3FF80000 view ===== */
@@ -310,7 +310,7 @@ static void test_da_to_va_dram_carveout_offset(struct kunit *test)
 	va = test_da_to_va(priv, A527_DRAM_PHYS + 0x800, 0x100, NULL);
 	KUNIT_ASSERT_NOT_NULL(test, va);
 	KUNIT_EXPECT_PTR_EQ(test, va,
-			     (void *)((unsigned long)FAKE_DRAM_VA + 0x800));
+			    (void *)((unsigned long)FAKE_DRAM_VA + 0x800));
 }
 
 /* ===== Trace region ===== */
