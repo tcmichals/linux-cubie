@@ -97,6 +97,12 @@ struct sunxi_rproc {
 	struct mbox_chan *tx_chan;
 	struct mbox_chan *rx_chan;
 	struct work_struct vq_work;
+	/*
+	 * Stable storage for the VirtIO queue ID sent to the mailbox.
+	 * mbox_send_message() is non-blocking (tx_block=false), so the
+	 * message pointer must outlive the kick() call frame.
+	 */
+	u32 kick_msg;
 };
 
 static void sunxi_rproc_vq_work(struct work_struct *work)
@@ -301,13 +307,14 @@ static int sunxi_rproc_start(struct rproc *rproc)
 	if (rproc->bootaddr > U32_MAX)
 		return -EINVAL;
 
-	/* XuanTie RISC-V boot sequence */
-	if (priv->cfg_va) {
-		writel((u32)rproc->bootaddr, priv->cfg_va + E906_STA_ADD_REG);
-		dev_dbg(priv->dev, "STA_ADD set to 0x%08x\n", (u32)rproc->bootaddr);
-	}
-
-	/* Release core reset to begin execution */
+	/*
+	 * Deassert reset before writing the boot vector register.
+	 *
+	 * On a recovery path, stop() re-asserts rst_core/rst_cfg without
+	 * calling unprepare(). Writing STA_ADD_REG while the CFG block AXI
+	 * bus is held in reset causes a synchronous external abort on ARM64.
+	 * Deassert first, then program the boot address.
+	 */
 	if (priv->rst_core) {
 		ret = reset_control_deassert(priv->rst_core);
 		if (ret) {
@@ -322,6 +329,12 @@ static int sunxi_rproc_start(struct rproc *rproc)
 		}
 	}
 
+	/* Program boot vector now that the CFG block bus is live */
+	if (priv->cfg_va) {
+		writel((u32)rproc->bootaddr, priv->cfg_va + E906_STA_ADD_REG);
+		dev_dbg(priv->dev, "STA_ADD set to 0x%08x\n", (u32)rproc->bootaddr);
+	}
+
 	return 0;
 }
 
@@ -329,15 +342,21 @@ static int sunxi_rproc_stop(struct rproc *rproc)
 {
 	struct sunxi_rproc *priv = rproc->priv;
 
-	cancel_work_sync(&priv->vq_work);
-
 	dev_info(priv->dev, "Halting %s core...\n",
 		 priv->cfg ? priv->cfg->name : "remote");
 
+	/*
+	 * Assert reset first so the core stops generating mailbox interrupts,
+	 * then drain any work already queued. Reversing this order leaves a
+	 * window where a late IRQ re-queues vq_work after cancel_work_sync()
+	 * returns, executing on freed resources.
+	 */
 	if (priv->rst_core)
 		reset_control_assert(priv->rst_core);
 	else if (priv->rst_cfg)
 		reset_control_assert(priv->rst_cfg);
+
+	cancel_work_sync(&priv->vq_work);
 
 	return 0;
 }
@@ -350,7 +369,14 @@ static void sunxi_rproc_kick(struct rproc *rproc, int vqid)
 	if (!priv->tx_chan)
 		return;
 
-	ret = mbox_send_message(priv->tx_chan, (void *)&vqid);
+	/*
+	 * Use priv->kick_msg rather than a stack-local variable. The mailbox
+	 * controller runs with tx_block=false, so mbox_send_message() may
+	 * queue the pointer and return before the hardware reads the message.
+	 * A stack-local vqid would be a use-after-return at that point.
+	 */
+	priv->kick_msg = (u32)vqid;
+	ret = mbox_send_message(priv->tx_chan, &priv->kick_msg);
 	if (ret < 0)
 		dev_err_ratelimited(priv->dev, "failed to send mailbox kick: %d\n", ret);
 
@@ -364,23 +390,37 @@ static void *sunxi_rproc_da_to_va(struct rproc *rproc, u64 da, size_t len, bool 
 	if (len == 0)
 		return NULL;
 
-	/* 1. Dedicated MCU Local SRAM Space 0 (Resource "r_sram" / "sram") */
+	/*
+	 * Reject any da+len combination that overflows u64. A crafted ELF
+	 * with da near U64_MAX could wrap da+len to a small value, bypassing
+	 * every upper-bound check below and allowing arbitrary kernel memory
+	 * to be mapped during firmware loading.
+	 */
+	if (da > U64_MAX - len)
+		return NULL;
+
+	/*
+	 * 1. Dedicated MCU Local SRAM Space 0 (Resource "r_sram" / "sram")
+	 *
+	 * Valid core-local DA aliases for Space 0 on XuanTie E907:
+	 *   Host PA      (e.g. 0x07280000 — as seen by the ARM host)
+	 *   0x3ff80000   (E907_SRAM_SPACE0_DA, primary TRM alias)
+	 *   0x3ffc0000   (E907_SRAM_SPACE0_DA_ALT, secondary alias)
+	 *   0x00020000   (PubSRAM-C alias used by older E906 firmware)
+	 *
+	 * 0x40000000 (E907_SRAM_SPACE1_DA) is NOT a Space 0 alias — it
+	 * belongs exclusively to Space 1 (r_sram1). Including it here
+	 * would silently redirect Space 1 accesses into the wrong window.
+	 */
 	if (priv->r_sram_va) {
-		/* Host physical address view (e.g., 0x07280000, 0x07200000, 0x00020000) */
+		/* Host physical address view */
 		if (da >= priv->r_sram_phys &&
 		    (da + len) <= (priv->r_sram_phys + priv->r_sram_size)) {
 			if (is_iomem)
 				*is_iomem = true;
 			return priv->r_sram_va + (da - priv->r_sram_phys);
 		}
-		/* Core DA view: 0x40000000 */
-		if (da >= 0x40000000 &&
-		    (da + len) <= (0x40000000 + priv->r_sram_size)) {
-			if (is_iomem)
-				*is_iomem = true;
-			return priv->r_sram_va + (da - 0x40000000);
-		}
-		/* High SRAM Space 0 fallback views (0x3ff80000 / 0x3ffc0000) */
+		/* High SRAM Space 0 views (0x3ff80000 / 0x3ffc0000) */
 		if (da >= 0x3ff80000 && (da + len) <= (0x3ff80000 + priv->r_sram_size)) {
 			if (is_iomem)
 				*is_iomem = true;
@@ -839,6 +879,12 @@ static int sunxi_rproc_probe(struct platform_device *pdev)
 	}
 
 skip_mbox:
+	/*
+	 * INIT_WORK must precede any error path that reaches err_mbox_release,
+	 * because cancel_work_sync() on an uninitialized work_struct triggers
+	 * a kernel BUG. Placing it here — before rproc_add() — ensures all
+	 * subsequent error paths are safe.
+	 */
 	INIT_WORK(&priv->vq_work, sunxi_rproc_vq_work);
 	platform_set_drvdata(pdev, rproc);
 
@@ -854,9 +900,14 @@ skip_mbox:
 
 err_mbox_release:
 	cancel_work_sync(&priv->vq_work);
-	if (priv->rx_chan)
+	/*
+	 * mbox_request_channel_byname() can return ERR_PTR on failure.
+	 * Guard with IS_ERR() to avoid calling mbox_free_channel() with
+	 * an invalid pointer, which would panic on the first dereference.
+	 */
+	if (priv->rx_chan && !IS_ERR(priv->rx_chan))
 		mbox_free_channel(priv->rx_chan);
-	if (priv->tx_chan)
+	if (priv->tx_chan && !IS_ERR(priv->tx_chan))
 		mbox_free_channel(priv->tx_chan);
 err_mem_release:
 	if (priv->has_reserved_mem)
@@ -869,8 +920,17 @@ static void sunxi_rproc_remove(struct platform_device *pdev)
 	struct rproc *rproc = platform_get_drvdata(pdev);
 	struct sunxi_rproc *priv = rproc->priv;
 
-	cancel_work_sync(&priv->vq_work);
+	/*
+	 * Teardown order is critical:
+	 * 1. rproc_del() stops the remote core and tears down VirtIO/vring,
+	 *    which stops the hardware from generating further mailbox IRQs.
+	 * 2. cancel_work_sync() drains any in-flight vq_work. Calling this
+	 *    before rproc_del() risks a late RX IRQ re-queuing work after
+	 *    cancel_work_sync() returns, executing on freed priv->rx_chan.
+	 * 3. Free mailbox channels only after the workqueue is fully drained.
+	 */
 	rproc_del(rproc);
+	cancel_work_sync(&priv->vq_work);
 
 	if (priv->rx_chan)
 		mbox_free_channel(priv->rx_chan);
@@ -882,9 +942,11 @@ static void sunxi_rproc_remove(struct platform_device *pdev)
 }
 
 static const struct of_device_id sunxi_rproc_of_match[] = {
+	/*
+	 * A523, A527, and T527 are the same silicon die (sun55i family).
+	 * Use a single compatible string per upstream DT binding policy.
+	 */
 	{ .compatible = "allwinner,sun55i-a523-rproc", .data = &sun55i_riscv_cfg },
-	{ .compatible = "allwinner,sun55i-a527-rproc", .data = &sun55i_riscv_cfg },
-	{ .compatible = "allwinner,sun55i-t527-rproc", .data = &sun55i_riscv_cfg },
 	{ /* sentinel */ }
 };
 MODULE_DEVICE_TABLE(of, sunxi_rproc_of_match);

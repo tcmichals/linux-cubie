@@ -107,8 +107,18 @@ static irqreturn_t sun55i_msgbox_irq(int irq, void *dev_id)
 				mbox_chan_received_data(&mbox->controller.chans[chan_idx], &msg);
 			}
 
+			/*
+			 * Write-1-to-clear the interrupt status bit. Re-read
+			 * MSG_STATUS after clearing: new messages may have
+			 * arrived in the FIFO between our drain loop and the
+			 * clear write (TOCTOU). If so, signal the channel again
+			 * so the framework re-polls before going idle.
+			 */
 			writel(RD_IRQ_PEND_BIT(p),
 			       local_base + SUNXI_MSGBOX_READ_IRQ_STATUS(local_n));
+			if (readl(local_base + SUNXI_MSGBOX_MSG_STATUS(local_n, p)) & MSG_NUM_MASK)
+				writel(RD_IRQ_PEND_BIT(p),
+				       local_base + SUNXI_MSGBOX_READ_IRQ_STATUS(local_n));
 			ret = IRQ_HANDLED;
 		}
 	}
@@ -268,11 +278,16 @@ static int sun55i_msgbox_probe(struct platform_device *pdev)
 	for (i = 0; i < irq_cnt; i++) {
 		int irq = platform_get_irq(pdev, i);
 
-		if (irq > 0) {
-			ret = devm_request_irq(dev, irq, sun55i_msgbox_irq,
-					       IRQF_SHARED, dev_name(dev), mbox);
-			if (ret)
-				dev_warn(dev, "failed to request irq %d: %d\n", irq, ret);
+		if (irq < 0) {
+			ret = irq;
+			goto err_assert_reset;
+		}
+
+		ret = devm_request_irq(dev, irq, sun55i_msgbox_irq,
+				       IRQF_SHARED, dev_name(dev), mbox);
+		if (ret) {
+			dev_err(dev, "failed to request irq %d: %d\n", irq, ret);
+			goto err_assert_reset;
 		}
 	}
 
@@ -303,6 +318,8 @@ static int sun55i_msgbox_probe(struct platform_device *pdev)
 
 	return 0;
 
+err_assert_reset:
+	reset_control_assert(mbox->reset);
 err_disable_clk:
 	clk_disable_unprepare(mbox->clk);
 	return ret;
@@ -313,6 +330,7 @@ static void sun55i_msgbox_remove(struct platform_device *pdev)
 	struct sun55i_msgbox *mbox = platform_get_drvdata(pdev);
 
 	mbox_controller_unregister(&mbox->controller);
+	reset_control_assert(mbox->reset);
 	clk_disable_unprepare(mbox->clk);
 }
 
