@@ -50,9 +50,20 @@ properties:
     minItems: 1
     maxItems: 4
     description:
-      One interrupt per processor port (ARM, DSP, CPUS, RISC-V).
-      The ARM host port interrupt is required; remote port interrupts
-      are optional. Provide only the interrupts that are used.
+      One interrupt per processor port in port order (arm, dsp, cpus, rv).
+      The ARM host port interrupt is required; remote port interrupts are
+      optional. Use interrupt-names to identify which ports are present when
+      providing a partial list.
+
+  interrupt-names:
+    minItems: 1
+    maxItems: 4
+    items:
+      enum:
+        - arm
+        - dsp
+        - cpus
+        - rv
 
   '#mbox-cells':
     const: 1
@@ -86,5 +97,6 @@ examples:
                      <GIC_SPI 1 IRQ_TYPE_LEVEL_HIGH>,
                      <GIC_SPI 181 IRQ_TYPE_LEVEL_HIGH>,
                      <GIC_SPI 174 IRQ_TYPE_LEVEL_HIGH>;
+        interrupt-names = "arm", "dsp", "cpus", "rv";
         #mbox-cells = <1>;
     };
