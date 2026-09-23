@@ -651,6 +651,92 @@ static void test_irq_all_three_routes_simultaneous(struct kunit *test)
 	KUNIT_EXPECT_EQ(test, fix->sinks[8].last_msg, 0x33330001U);
 }
 
+static void test_irq_disabled_channel_ignored(struct kunit *test)
+{
+	struct mock_msgbox_fixture *fix = create_mock_fixture(test);
+	u32 en_idx = SUNXI_MSGBOX_READ_IRQ_ENABLE(0) / 4;
+	u32 stat_idx = SUNXI_MSGBOX_READ_IRQ_STATUS(0) / 4;
+	irqreturn_t ret;
+
+	/* Channel 1 has pending bit set, but IRQ_ENABLE is 0 (channel disabled) */
+	fix->regs[0][en_idx] = 0;
+	fix->regs[0][stat_idx] = RD_IRQ_PEND_BIT(1);
+	fix->regs[0][SUNXI_MSGBOX_MSG_STATUS(0, 1) / 4] = 1;
+	fix->regs[0][SUNXI_MSGBOX_MSG_FIFO(0, 1) / 4] = 0x12345678;
+
+	ret = sun55i_msgbox_irq(0, &fix->mbox);
+	/* Must return IRQ_NONE and must NOT deliver message */
+	KUNIT_EXPECT_EQ(test, ret, IRQ_NONE);
+	KUNIT_EXPECT_EQ(test, fix->sinks[1].count, 0);
+}
+
+static void test_irq_spurious_noise_bits(struct kunit *test)
+{
+	struct mock_msgbox_fixture *fix = create_mock_fixture(test);
+	irqreturn_t ret;
+
+	/* Non-channel upper bits set, no valid channel enabled */
+	fix->regs[0][SUNXI_MSGBOX_READ_IRQ_ENABLE(0) / 4] = 0;
+	fix->regs[0][SUNXI_MSGBOX_READ_IRQ_STATUS(0) / 4] = 0xFFFF0000U;
+
+	ret = sun55i_msgbox_irq(0, &fix->mbox);
+	KUNIT_EXPECT_EQ(test, ret, IRQ_NONE);
+}
+
+static void test_functional_last_tx_done_backpressure_boundary(struct kunit *test)
+{
+	struct mock_msgbox_fixture *fix = create_mock_fixture(test);
+	u32 reg_idx = SUNXI_MSGBOX_MSG_STATUS(2, 0) / 4;
+	bool done;
+
+	/* 7 entries in FIFO -> space available (< 8) -> returns true */
+	fix->regs[3][reg_idx] = 7;
+	done = sun55i_msgbox_chan_ops.last_tx_done(&fix->chans[8]);
+	KUNIT_EXPECT_TRUE(test, done);
+
+	/* 8 entries in FIFO -> full (== SUN55I_FIFO_MAX) -> backpressure active (false) */
+	fix->regs[3][reg_idx] = 8;
+	done = sun55i_msgbox_chan_ops.last_tx_done(&fix->chans[8]);
+	KUNIT_EXPECT_FALSE(test, done);
+
+	/* 15 entries in FIFO -> full -> backpressure active (false) */
+	fix->regs[3][reg_idx] = 15;
+	done = sun55i_msgbox_chan_ops.last_tx_done(&fix->chans[8]);
+	KUNIT_EXPECT_FALSE(test, done);
+}
+
+static void test_irq_multi_port_burst_interleaved(struct kunit *test)
+{
+	struct mock_msgbox_fixture *fix = create_mock_fixture(test);
+	irqreturn_t ret;
+
+	/* Port 0 (Ch 0: CPUS) has 2 messages */
+	fix->regs[0][SUNXI_MSGBOX_READ_IRQ_ENABLE(0) / 4] = RD_IRQ_EN_BIT(0);
+	fix->regs[0][SUNXI_MSGBOX_READ_IRQ_STATUS(0) / 4] = RD_IRQ_PEND_BIT(0);
+	fix->regs[0][SUNXI_MSGBOX_MSG_STATUS(0, 0) / 4] = 2;
+	fix->regs[0][SUNXI_MSGBOX_MSG_FIFO(0, 0) / 4] = 0xAA01;
+
+	/* Port 1 (Ch 4: DSP) has 2 messages */
+	fix->regs[0][SUNXI_MSGBOX_READ_IRQ_ENABLE(1) / 4] = RD_IRQ_EN_BIT(0);
+	fix->regs[0][SUNXI_MSGBOX_READ_IRQ_STATUS(1) / 4] = RD_IRQ_PEND_BIT(0);
+	fix->regs[0][SUNXI_MSGBOX_MSG_STATUS(1, 0) / 4] = 2;
+	fix->regs[0][SUNXI_MSGBOX_MSG_FIFO(1, 0) / 4] = 0xBB01;
+
+	/* Port 2 (Ch 8: RV) has 2 messages */
+	fix->regs[0][SUNXI_MSGBOX_READ_IRQ_ENABLE(2) / 4] = RD_IRQ_EN_BIT(0);
+	fix->regs[0][SUNXI_MSGBOX_READ_IRQ_STATUS(2) / 4] = RD_IRQ_PEND_BIT(0);
+	fix->regs[0][SUNXI_MSGBOX_MSG_STATUS(2, 0) / 4] = 2;
+	fix->regs[0][SUNXI_MSGBOX_MSG_FIFO(2, 0) / 4] = 0xCC01;
+
+	ret = sun55i_msgbox_irq(0, &fix->mbox);
+	KUNIT_EXPECT_EQ(test, ret, IRQ_HANDLED);
+
+	/* Check deliveries to respective sinks */
+	KUNIT_EXPECT_EQ(test, fix->sinks[0].count, 2);
+	KUNIT_EXPECT_EQ(test, fix->sinks[4].count, 2);
+	KUNIT_EXPECT_EQ(test, fix->sinks[8].count, 2);
+}
+
 static void test_msgbox_controller_invariants(struct kunit *test)
 {
 	struct mock_msgbox_fixture *fix = create_mock_fixture(test);
@@ -696,13 +782,17 @@ static struct kunit_case sun55i_msgbox_cases[] = {
 	KUNIT_CASE(test_functional_shutdown_flushes_and_bounds),
 	/* Hardirq Simulation Tests */
 	KUNIT_CASE(test_irq_spurious_returns_none),
+	KUNIT_CASE(test_irq_spurious_noise_bits),
+	KUNIT_CASE(test_irq_disabled_channel_ignored),
 	KUNIT_CASE(test_irq_single_message_received),
 	KUNIT_CASE(test_irq_empty_fifo_status_clear),
 	KUNIT_CASE(test_irq_multi_channel_concurrency),
 	KUNIT_CASE(test_irq_multi_port_concurrency),
+	KUNIT_CASE(test_irq_multi_port_burst_interleaved),
 	KUNIT_CASE(test_irq_fifo_drain_capped_at_max),
 	KUNIT_CASE(test_irq_channel_crosstalk_isolation),
 	KUNIT_CASE(test_irq_all_three_routes_simultaneous),
+	KUNIT_CASE(test_functional_last_tx_done_backpressure_boundary),
 	/* Ops & Controller Invariants */
 	KUNIT_CASE(test_msgbox_chan_ops_completeness),
 	KUNIT_CASE(test_msgbox_controller_invariants),
