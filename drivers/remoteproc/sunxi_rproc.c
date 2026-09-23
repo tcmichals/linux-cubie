@@ -391,24 +391,24 @@ void *sunxi_rproc_da_to_va(struct rproc *rproc, u64 da, size_t len, bool *is_iom
 		    (da + len) <= (priv->r_sram_phys + priv->r_sram_size)) {
 			if (is_iomem)
 				*is_iomem = true;
-			return priv->r_sram_va + (da - priv->r_sram_phys);
+			return (__force void *)(priv->r_sram_va + (da - priv->r_sram_phys));
 		}
 		/* High SRAM Space 0 views (0x3ff80000 / 0x3ffc0000) */
 		if (da >= 0x3ff80000 && (da + len) <= (0x3ff80000 + priv->r_sram_size)) {
 			if (is_iomem)
 				*is_iomem = true;
-			return priv->r_sram_va + (da - 0x3ff80000);
+			return (__force void *)(priv->r_sram_va + (da - 0x3ff80000));
 		}
 		if (da >= 0x3ffc0000 && (da + len) <= (0x3ffc0000 + priv->r_sram_size)) {
 			if (is_iomem)
 				*is_iomem = true;
-			return priv->r_sram_va + (da - 0x3ffc0000);
+			return (__force void *)(priv->r_sram_va + (da - 0x3ffc0000));
 		}
 		/* PubSRAM C DA view (0x00020000) */
 		if (da >= 0x00020000 && (da + len) <= (0x00020000 + priv->r_sram_size)) {
 			if (is_iomem)
 				*is_iomem = true;
-			return priv->r_sram_va + (da - 0x00020000);
+			return (__force void *)(priv->r_sram_va + (da - 0x00020000));
 		}
 	}
 
@@ -419,20 +419,20 @@ void *sunxi_rproc_da_to_va(struct rproc *rproc, u64 da, size_t len, bool *is_iom
 		    (da + len) <= (priv->r_sram1_phys + priv->r_sram1_size)) {
 			if (is_iomem)
 				*is_iomem = true;
-			return priv->r_sram1_va + (da - priv->r_sram1_phys);
+			return (__force void *)(priv->r_sram1_va + (da - priv->r_sram1_phys));
 		}
 		/* Core DA view: 0x40000000 (Space 1) and 0x40040000 */
 		if (da >= 0x40000000 &&
 		    (da + len) <= (0x40000000 + priv->r_sram1_size)) {
 			if (is_iomem)
 				*is_iomem = true;
-			return priv->r_sram1_va + (da - 0x40000000);
+			return (__force void *)(priv->r_sram1_va + (da - 0x40000000));
 		}
 		if (da >= 0x40040000 &&
 		    (da + len) <= (0x40040000 + priv->r_sram1_size)) {
 			if (is_iomem)
 				*is_iomem = true;
-			return priv->r_sram1_va + (da - 0x40040000);
+			return (__force void *)(priv->r_sram1_va + (da - 0x40040000));
 		}
 	}
 
@@ -559,7 +559,8 @@ static int sunxi_rproc_register_mem(struct platform_device *pdev, struct rproc *
 		priv->dram_size = resource_size(res);
 		priv->dram_va = devm_memremap(dev, res->start, resource_size(res), MEMREMAP_WB);
 		if (!priv->dram_va)
-			priv->dram_va = devm_ioremap_wc(dev, res->start, resource_size(res));
+			priv->dram_va = (__force void *)devm_ioremap_wc(dev, res->start,
+									resource_size(res));
 		if (!priv->dram_va)
 			dev_warn(dev, "failed to map 'dram' resource\n");
 	}
@@ -578,7 +579,8 @@ static int sunxi_rproc_register_mem(struct platform_device *pdev, struct rproc *
 		priv->trace_size = resource_size(res);
 		priv->trace_va = devm_memremap(dev, res->start, resource_size(res), MEMREMAP_WB);
 		if (!priv->trace_va)
-			priv->trace_va = devm_ioremap_wc(dev, res->start, resource_size(res));
+			priv->trace_va = (__force void *)devm_ioremap_wc(dev, res->start,
+									 resource_size(res));
 		dev_info(dev, "mapped 'trace' mmio resource %pa+%zu\n",
 			 &priv->trace_phys, priv->trace_size);
 	}
@@ -634,8 +636,8 @@ static int sunxi_rproc_parse_memory_regions(struct rproc *rproc)
 			priv->trace_va = devm_memremap(dev, res.start, resource_size(&res),
 						       MEMREMAP_WB);
 			if (!priv->trace_va)
-				priv->trace_va = devm_ioremap_wc(dev, res.start,
-								 resource_size(&res));
+				priv->trace_va = (__force void *)
+					devm_ioremap_wc(dev, res.start, resource_size(&res));
 			dev_info(dev, "registered trace carveout %pa+%zu (%s)\n",
 				 &priv->trace_phys, priv->trace_size, name);
 		} else if (name && (strstr(name, "dram") || strstr(name, "vram"))) {
@@ -644,19 +646,19 @@ static int sunxi_rproc_parse_memory_regions(struct rproc *rproc)
 			priv->dram_va = devm_memremap(dev, res.start, resource_size(&res),
 						      MEMREMAP_WB);
 			if (!priv->dram_va)
-				priv->dram_va = devm_ioremap_wc(dev, res.start,
-								resource_size(&res));
+				priv->dram_va = (__force void *)
+					devm_ioremap_wc(dev, res.start, resource_size(&res));
 			dev_info(dev, "registered dram carveout %pa+%zu (%s)\n",
 				 &priv->dram_phys, priv->dram_size, name);
 		}
 
 		/* Reuse existing SRAM mapping if region overlaps, else ioremap */
 		if (priv->r_sram1_va && res.start == priv->r_sram1_phys)
-			va = priv->r_sram1_va;
+			va = (__force void *)priv->r_sram1_va;
 		else if (priv->r_sram_va && res.start == priv->r_sram_phys)
-			va = priv->r_sram_va;
+			va = (__force void *)priv->r_sram_va;
 		else
-			va = devm_ioremap_wc(dev, res.start, resource_size(&res));
+			va = (__force void *)devm_ioremap_wc(dev, res.start, resource_size(&res));
 
 		if (va) {
 			mem = rproc_mem_entry_init(dev, va, (dma_addr_t)res.start,
