@@ -8,9 +8,15 @@
 #include <linux/mailbox_controller.h>
 #include <linux/spinlock.h>
 
+#define SUN55I_PROC_ARM			0
+#define SUN55I_PROC_DSP			1
+#define SUN55I_PROC_CPUS		2
+#define SUN55I_PROC_RV			3
+
 #define SUN55I_MAX_PROCESSORS		4
 #define SUN55I_CHANS_PER_PROC		4
-#define SUN55I_NUM_CHANS		((SUN55I_MAX_PROCESSORS - 1) * SUN55I_CHANS_PER_PROC)
+#define SUN55I_NUM_ROUTES		(SUN55I_MAX_PROCESSORS - 1)
+#define SUN55I_NUM_CHANS		(SUN55I_NUM_ROUTES * SUN55I_CHANS_PER_PROC)
 #define SUN55I_FIFO_MAX			8
 
 #define SUNXI_MSGBOX_OFFSET(n)			(0x100 * (n))
@@ -42,7 +48,7 @@ struct sun55i_msgbox {
 	spinlock_t lock;
 };
 
-extern const struct sun55i_route sun55i_msgbox_arm_routes[3];
+extern const struct sun55i_route sun55i_msgbox_arm_routes[SUN55I_NUM_ROUTES];
 extern const struct mbox_chan_ops sun55i_msgbox_chan_ops;
 
 void sun55i_chan_to_route(int chan_idx, int *local_n, int *p,

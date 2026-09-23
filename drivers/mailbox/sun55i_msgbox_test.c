@@ -31,29 +31,29 @@ static void test_chan_to_route_cpus_all(struct kunit *test)
 {
 	int local_n, p, remote_id, remote_n;
 
-	/* Ch 0..3: CPUS (remote_id = 2, remote_n = 0, local_n = 0) */
+	/* Ch 0..3: CPUS (remote_id = SUN55I_PROC_CPUS, remote_n = 0, local_n = 0) */
 	sun55i_chan_to_route(0, &local_n, &p, &remote_id, &remote_n);
 	KUNIT_EXPECT_EQ(test, local_n, 0);
 	KUNIT_EXPECT_EQ(test, p, 0);
-	KUNIT_EXPECT_EQ(test, remote_id, 2);
+	KUNIT_EXPECT_EQ(test, remote_id, SUN55I_PROC_CPUS);
 	KUNIT_EXPECT_EQ(test, remote_n, 0);
 
 	sun55i_chan_to_route(1, &local_n, &p, &remote_id, &remote_n);
 	KUNIT_EXPECT_EQ(test, local_n, 0);
 	KUNIT_EXPECT_EQ(test, p, 1);
-	KUNIT_EXPECT_EQ(test, remote_id, 2);
+	KUNIT_EXPECT_EQ(test, remote_id, SUN55I_PROC_CPUS);
 	KUNIT_EXPECT_EQ(test, remote_n, 0);
 
 	sun55i_chan_to_route(2, &local_n, &p, &remote_id, &remote_n);
 	KUNIT_EXPECT_EQ(test, local_n, 0);
 	KUNIT_EXPECT_EQ(test, p, 2);
-	KUNIT_EXPECT_EQ(test, remote_id, 2);
+	KUNIT_EXPECT_EQ(test, remote_id, SUN55I_PROC_CPUS);
 	KUNIT_EXPECT_EQ(test, remote_n, 0);
 
 	sun55i_chan_to_route(3, &local_n, &p, &remote_id, &remote_n);
 	KUNIT_EXPECT_EQ(test, local_n, 0);
 	KUNIT_EXPECT_EQ(test, p, 3);
-	KUNIT_EXPECT_EQ(test, remote_id, 2);
+	KUNIT_EXPECT_EQ(test, remote_id, SUN55I_PROC_CPUS);
 	KUNIT_EXPECT_EQ(test, remote_n, 0);
 }
 
@@ -61,29 +61,29 @@ static void test_chan_to_route_dsp_all(struct kunit *test)
 {
 	int local_n, p, remote_id, remote_n;
 
-	/* Ch 4..7: DSP (remote_id = 1, remote_n = 0, local_n = 1) */
+	/* Ch 4..7: DSP (remote_id = SUN55I_PROC_DSP, remote_n = 0, local_n = 1) */
 	sun55i_chan_to_route(4, &local_n, &p, &remote_id, &remote_n);
 	KUNIT_EXPECT_EQ(test, local_n, 1);
 	KUNIT_EXPECT_EQ(test, p, 0);
-	KUNIT_EXPECT_EQ(test, remote_id, 1);
+	KUNIT_EXPECT_EQ(test, remote_id, SUN55I_PROC_DSP);
 	KUNIT_EXPECT_EQ(test, remote_n, 0);
 
 	sun55i_chan_to_route(5, &local_n, &p, &remote_id, &remote_n);
 	KUNIT_EXPECT_EQ(test, local_n, 1);
 	KUNIT_EXPECT_EQ(test, p, 1);
-	KUNIT_EXPECT_EQ(test, remote_id, 1);
+	KUNIT_EXPECT_EQ(test, remote_id, SUN55I_PROC_DSP);
 	KUNIT_EXPECT_EQ(test, remote_n, 0);
 
 	sun55i_chan_to_route(6, &local_n, &p, &remote_id, &remote_n);
 	KUNIT_EXPECT_EQ(test, local_n, 1);
 	KUNIT_EXPECT_EQ(test, p, 2);
-	KUNIT_EXPECT_EQ(test, remote_id, 1);
+	KUNIT_EXPECT_EQ(test, remote_id, SUN55I_PROC_DSP);
 	KUNIT_EXPECT_EQ(test, remote_n, 0);
 
 	sun55i_chan_to_route(7, &local_n, &p, &remote_id, &remote_n);
 	KUNIT_EXPECT_EQ(test, local_n, 1);
 	KUNIT_EXPECT_EQ(test, p, 3);
-	KUNIT_EXPECT_EQ(test, remote_id, 1);
+	KUNIT_EXPECT_EQ(test, remote_id, SUN55I_PROC_DSP);
 	KUNIT_EXPECT_EQ(test, remote_n, 0);
 }
 
@@ -91,29 +91,29 @@ static void test_chan_to_route_rv_all(struct kunit *test)
 {
 	int local_n, p, remote_id, remote_n;
 
-	/* Ch 8..11: XuanTie RISC-V (remote_id = 3, remote_n = 2, local_n = 2) */
+	/* Ch 8..11: XuanTie RISC-V (remote_id = SUN55I_PROC_RV, remote_n = 2, local_n = 2) */
 	sun55i_chan_to_route(8, &local_n, &p, &remote_id, &remote_n);
 	KUNIT_EXPECT_EQ(test, local_n, 2);
 	KUNIT_EXPECT_EQ(test, p, 0);
-	KUNIT_EXPECT_EQ(test, remote_id, 3);
+	KUNIT_EXPECT_EQ(test, remote_id, SUN55I_PROC_RV);
 	KUNIT_EXPECT_EQ(test, remote_n, 2);
 
 	sun55i_chan_to_route(9, &local_n, &p, &remote_id, &remote_n);
 	KUNIT_EXPECT_EQ(test, local_n, 2);
 	KUNIT_EXPECT_EQ(test, p, 1);
-	KUNIT_EXPECT_EQ(test, remote_id, 3);
+	KUNIT_EXPECT_EQ(test, remote_id, SUN55I_PROC_RV);
 	KUNIT_EXPECT_EQ(test, remote_n, 2);
 
 	sun55i_chan_to_route(10, &local_n, &p, &remote_id, &remote_n);
 	KUNIT_EXPECT_EQ(test, local_n, 2);
 	KUNIT_EXPECT_EQ(test, p, 2);
-	KUNIT_EXPECT_EQ(test, remote_id, 3);
+	KUNIT_EXPECT_EQ(test, remote_id, SUN55I_PROC_RV);
 	KUNIT_EXPECT_EQ(test, remote_n, 2);
 
 	sun55i_chan_to_route(11, &local_n, &p, &remote_id, &remote_n);
 	KUNIT_EXPECT_EQ(test, local_n, 2);
 	KUNIT_EXPECT_EQ(test, p, 3);
-	KUNIT_EXPECT_EQ(test, remote_id, 3);
+	KUNIT_EXPECT_EQ(test, remote_id, SUN55I_PROC_RV);
 	KUNIT_EXPECT_EQ(test, remote_n, 2);
 }
 

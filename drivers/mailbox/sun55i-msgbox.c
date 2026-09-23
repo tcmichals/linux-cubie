@@ -24,14 +24,14 @@
 
 /*
  * Hardware routing table for Cortex-A55 host (local_id = 0):
- *   local_n = 0 -> CPUS (remote_id = 2, remote_n = 0) -> Channels 0..3
- *   local_n = 1 -> DSP  (remote_id = 1, remote_n = 0) -> Channels 4..7
- *   local_n = 2 -> RV   (remote_id = 3, remote_n = 2) -> Channels 8..11
+ *   local_n = 0 -> CPUS (remote_id = SUN55I_PROC_CPUS, remote_n = 0) -> Channels 0..3
+ *   local_n = 1 -> DSP  (remote_id = SUN55I_PROC_DSP,  remote_n = 0) -> Channels 4..7
+ *   local_n = 2 -> RV   (remote_id = SUN55I_PROC_RV,   remote_n = 2) -> Channels 8..11
  */
-const struct sun55i_route sun55i_msgbox_arm_routes[3] = {
-	[0] = { .remote_id = 2, .remote_n = 0 },
-	[1] = { .remote_id = 1, .remote_n = 0 },
-	[2] = { .remote_id = 3, .remote_n = 2 },
+const struct sun55i_route sun55i_msgbox_arm_routes[SUN55I_NUM_ROUTES] = {
+	[0] = { .remote_id = SUN55I_PROC_CPUS, .remote_n = 0 },
+	[1] = { .remote_id = SUN55I_PROC_DSP,  .remote_n = 0 },
+	[2] = { .remote_id = SUN55I_PROC_RV,   .remote_n = 2 },
 };
 
 #if IS_ENABLED(CONFIG_SUN55I_MSGBOX_KUNIT_TEST)
@@ -69,7 +69,7 @@ irqreturn_t sun55i_msgbox_irq(int irq, void *dev_id)
 	irqreturn_t ret = IRQ_NONE;
 	int i, local_n, p, chan_idx;
 
-	for (local_n = 0; local_n < 3; local_n++) {
+	for (local_n = 0; local_n < SUN55I_NUM_ROUTES; local_n++) {
 		void __iomem *local_base = mbox->regs[0];
 		u32 en, stat, pending;
 
@@ -273,7 +273,7 @@ static int sun55i_msgbox_probe(struct platform_device *pdev)
 		goto err_disable_clk;
 
 	/* Disable all read IRQs and clear status */
-	for (local_n = 0; local_n < 3; local_n++) {
+	for (local_n = 0; local_n < SUN55I_NUM_ROUTES; local_n++) {
 		writel(0, mbox->regs[0] + SUNXI_MSGBOX_READ_IRQ_ENABLE(local_n));
 		writel(0xffffffff, mbox->regs[0] + SUNXI_MSGBOX_READ_IRQ_STATUS(local_n));
 	}
@@ -322,7 +322,7 @@ static int sun55i_msgbox_probe(struct platform_device *pdev)
 
 err_free_irqs:
 	/* Mask all hardware read IRQs before unwinding reset/clock */
-	for (local_n = 0; local_n < 3; local_n++)
+	for (local_n = 0; local_n < SUN55I_NUM_ROUTES; local_n++)
 		writel(0, mbox->regs[0] + SUNXI_MSGBOX_READ_IRQ_ENABLE(local_n));
 err_assert_reset:
 	reset_control_assert(mbox->reset);
@@ -339,7 +339,7 @@ static void sun55i_msgbox_remove(struct platform_device *pdev)
 	mbox_controller_unregister(&mbox->controller);
 
 	/* Mask hardware interrupts before asserting reset and disabling clock */
-	for (local_n = 0; local_n < 3; local_n++)
+	for (local_n = 0; local_n < SUN55I_NUM_ROUTES; local_n++)
 		writel(0, mbox->regs[0] + SUNXI_MSGBOX_READ_IRQ_ENABLE(local_n));
 
 	for (i = 0; i < mbox->num_irqs; i++)
