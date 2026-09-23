@@ -59,12 +59,15 @@ static void sunxi_rproc_mb_rx_callback(struct mbox_client *cl, void *data)
 
 static irqreturn_t sunxi_rproc_crash_handler(int irq, void *data)
 {
-	struct rproc *rproc = data;
-	struct sunxi_rproc *priv = rproc->priv;
+	struct sunxi_rproc *priv = data;
+	struct rproc *rproc = priv->rproc;
 
 	dev_err(priv->dev, "Hardware crash event received from %s core!\n",
 		priv->cfg ? priv->cfg->name : "remote");
-	disable_irq_nosync(irq);
+	if (priv->crash_irq_enabled) {
+		disable_irq_nosync(irq);
+		priv->crash_irq_enabled = false;
+	}
 	rproc_report_crash(rproc, RPROC_FATAL_ERROR);
 
 	return IRQ_HANDLED;
@@ -253,9 +256,11 @@ int sunxi_rproc_start(struct rproc *rproc)
 	if (rproc->bootaddr > U32_MAX)
 		return -EINVAL;
 
-	/* Re-enable crash IRQ on start if it was disabled during crash handling */
-	if (priv->crash_irq > 0)
+	/* Enable crash IRQ now that core is executing */
+	if (priv->crash_irq > 0 && !priv->crash_irq_enabled) {
 		enable_irq(priv->crash_irq);
+		priv->crash_irq_enabled = true;
+	}
 
 	/*
 	 * Deassert reset before writing the boot vector register.
@@ -309,6 +314,12 @@ int sunxi_rproc_stop(struct rproc *rproc)
 		reset_control_assert(priv->rst_core);
 	else if (priv->rst_cfg)
 		reset_control_assert(priv->rst_cfg);
+
+	/* Disable crash IRQ while core is stopped */
+	if (priv->crash_irq > 0 && priv->crash_irq_enabled) {
+		disable_irq(priv->crash_irq);
+		priv->crash_irq_enabled = false;
+	}
 
 	cancel_work_sync(&priv->vq_work);
 
@@ -743,12 +754,15 @@ static int sunxi_rproc_probe(struct platform_device *pdev)
 	if (crash_irq > 0) {
 		ret = devm_request_threaded_irq(dev, crash_irq, NULL,
 						sunxi_rproc_crash_handler,
-						IRQF_ONESHOT, "sunxi-rproc-crash",
-						rproc);
-		if (ret)
+						IRQF_ONESHOT | IRQF_NO_AUTOEN,
+						"sunxi-rproc-crash",
+						priv);
+		if (ret) {
 			dev_warn(dev, "failed to request crash IRQ %d: %d\n", crash_irq, ret);
-		else
+		} else {
 			priv->crash_irq = crash_irq;
+			priv->crash_irq_enabled = false;
+		}
 	}
 
 	/* 6. Mailbox IPC Client */
@@ -845,8 +859,10 @@ static void sunxi_rproc_remove(struct platform_device *pdev)
 	 *    cancel_work_sync() returns, executing on freed priv->rx_chan.
 	 * 4. Free mailbox channels only after the workqueue is fully drained.
 	 */
-	if (priv->crash_irq > 0)
+	if (priv->crash_irq > 0 && priv->crash_irq_enabled) {
 		disable_irq(priv->crash_irq);
+		priv->crash_irq_enabled = false;
+	}
 
 	rproc_del(rproc);
 	cancel_work_sync(&priv->vq_work);

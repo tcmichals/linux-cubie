@@ -28,14 +28,14 @@
  *   local_n = 1 -> DSP  (remote_id = 1, remote_n = 0) -> Channels 4..7
  *   local_n = 2 -> RV   (remote_id = 3, remote_n = 2) -> Channels 8..11
  */
-const struct sun55i_route arm_routes[3] = {
+const struct sun55i_route sun55i_msgbox_arm_routes[3] = {
 	[0] = { .remote_id = 2, .remote_n = 0 },
 	[1] = { .remote_id = 1, .remote_n = 0 },
 	[2] = { .remote_id = 3, .remote_n = 2 },
 };
 
 #if IS_ENABLED(CONFIG_SUN55I_MSGBOX_KUNIT_TEST)
-EXPORT_SYMBOL_GPL(arm_routes);
+EXPORT_SYMBOL_GPL(sun55i_msgbox_arm_routes);
 #endif
 
 static inline struct sun55i_msgbox *to_sun55i_msgbox(struct mbox_chan *chan)
@@ -55,8 +55,8 @@ void sun55i_chan_to_route(int chan_idx, int *local_n, int *p,
 	}
 	*local_n = chan_idx / SUN55I_CHANS_PER_PROC;
 	*p = chan_idx % SUN55I_CHANS_PER_PROC;
-	*remote_id = arm_routes[*local_n].remote_id;
-	*remote_n = arm_routes[*local_n].remote_n;
+	*remote_id = sun55i_msgbox_arm_routes[*local_n].remote_id;
+	*remote_n = sun55i_msgbox_arm_routes[*local_n].remote_n;
 }
 
 #if IS_ENABLED(CONFIG_SUN55I_MSGBOX_KUNIT_TEST)

@@ -190,7 +190,7 @@ static void test_msgbox_fifo_reg_offsets(struct kunit *test)
 	KUNIT_EXPECT_EQ(test, SUNXI_MSGBOX_MSG_FIFO(0, 0),    0x070);
 	KUNIT_EXPECT_EQ(test, SUNXI_MSGBOX_MSG_FIFO(0, 3),    0x07c);
 
-	/* Port 2 (RV remote in arm_routes[2]) */
+	/* Port 2 (RV remote in sun55i_msgbox_arm_routes[2]) */
 	KUNIT_EXPECT_EQ(test, SUNXI_MSGBOX_MSG_FIFO(2, 0),    0x270);
 	KUNIT_EXPECT_EQ(test, SUNXI_MSGBOX_MSG_FIFO(2, 3),    0x27c);
 }

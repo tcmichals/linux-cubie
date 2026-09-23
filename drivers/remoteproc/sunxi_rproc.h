@@ -62,6 +62,7 @@ struct sunxi_rproc {
 	/* Reserved Memory & Mailbox State */
 	bool has_reserved_mem;
 	int crash_irq;
+	bool crash_irq_enabled;
 	struct mbox_client cl;
 	struct mbox_chan *tx_chan;
 	struct mbox_chan *rx_chan;

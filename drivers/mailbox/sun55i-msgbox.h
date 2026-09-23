@@ -42,7 +42,7 @@ struct sun55i_msgbox {
 	spinlock_t lock;
 };
 
-extern const struct sun55i_route arm_routes[3];
+extern const struct sun55i_route sun55i_msgbox_arm_routes[3];
 extern const struct mbox_chan_ops sun55i_msgbox_chan_ops;
 
 void sun55i_chan_to_route(int chan_idx, int *local_n, int *p,
