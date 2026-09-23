@@ -41,10 +41,11 @@ properties:
     minItems: 1
     maxItems: 4
     items:
-      - const: cfg
-      - const: r_sram
-      - const: r_sram1
-      - const: remap
+      enum:
+        - cfg
+        - r_sram
+        - r_sram1
+        - remap
 
   clocks:
     minItems: 1
@@ -54,11 +55,12 @@ properties:
     minItems: 1
     maxItems: 5
     items:
-      - const: parent
-      - const: bus
-      - const: core
-      - const: sram
-      - const: msgbox
+      enum:
+        - parent
+        - bus
+        - core
+        - sram
+        - msgbox
 
   resets:
     minItems: 1
@@ -68,10 +70,11 @@ properties:
     minItems: 1
     maxItems: 4
     items:
-      - const: cfg
-      - const: core
-      - const: sram
-      - const: msgbox
+      enum:
+        - cfg
+        - core
+        - sram
+        - msgbox
 
   mboxes:
     maxItems: 2
@@ -100,9 +103,10 @@ properties:
     minItems: 1
     maxItems: 3
     items:
-      - const: vram
-      - const: dram
-      - const: trace
+      enum:
+        - vram
+        - dram
+        - trace
 
   interrupts:
     maxItems: 1
