@@ -9,15 +9,49 @@
 #include <linux/remoteproc.h>
 #include <linux/reset.h>
 
-/* XuanTie core-local view of dedicated SRAM Spaces (E906/E907) */
-#define E907_SRAM_C_DA			0x00020000
-#define E907_SRAM_SPACE0_DA		0x3ff80000
-#define E907_SRAM_SPACE0_DA_ALT		0x3ffc0000
-#define E907_SRAM_SPACE1_DA		0x40000000
+/* XuanTie E906/E907 core-local view of dedicated SRAM Spaces (Allwinner A523/A527/T527) */
+#define E907_SRAM_C_DA			0x00020000UL
+#define E907_SRAM_SPACE0_DA		0x3ff80000UL
+#define E907_SRAM_SPACE0_DA_ALT		0x3ffc0000UL
+#define E907_SRAM_SPACE1_DA		0x40000000UL
+#define E907_SRAM_SPACE1_DA_ALT		0x40040000UL
+
+/* Allwinner A523/A527/T527 System Bus (Host Physical) Addresses & Window Sizes */
+#define SUN55I_SRAM_SPACE0_SYS		0x07280000UL
+#define SUN55I_SRAM_SPACE0_SIZE		0x00040000UL /* 256 KB */
+#define SUN55I_SRAM_SPACE1_SYS		0x072c0000UL
+#define SUN55I_SRAM_SPACE1_SIZE		0x00040000UL /* 256 KB */
+
+/* Address Translation Table flags */
+#define ATT_IOMEM			BIT(30)
+
+struct sunxi_rproc_att {
+	u64 da;
+	u64 sa;
+	size_t size;
+	int flags;
+};
+
+/* XuanTie CFG Block Register Offsets */
+#define E906_CTRL_REG			0x0000
+#define E906_STA_ADD_REG		0x0204
+
+/* Remap Control Register (offset 0x364 in PRCM_R_CCU / MCU_CCU) */
+#define SUNXI_REMAP_CTRL_OFFSET		0x0364
+/* Bit 0: 0 = local RAM for MCU; 1 = share for system */
+#define SUNXI_REMAP_MCU_RAM_BIT		BIT(0)
+/* Bit 1: 0 = SRAMA3_2 not shared; 1 = share for MCU_SYS */
+#define SUNXI_REMAP_SRAMA3_2_BIT	BIT(1)
 
 struct sunxi_rproc_cfg {
 	const char *name;
+	const struct sunxi_rproc_att *att;
+	size_t att_size;
+	bool has_remap_reg;
+	u32 boot_reg_offset;
 };
+
+extern const struct sunxi_rproc_cfg sun55i_riscv_cfg;
 
 struct sunxi_rproc {
 	struct rproc *rproc;

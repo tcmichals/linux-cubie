@@ -27,20 +27,31 @@
 
 #define DRIVER_NAME "sunxi-rproc"
 
-/* Remap Control Register (offset 0x364 in PRCM_R_CCU / MCU_CCU) */
-#define SUNXI_REMAP_CTRL_OFFSET		0x0364
-/* Bit 0: 0 = local RAM for MCU; 1 = share for system */
-#define SUNXI_REMAP_MCU_RAM_BIT		BIT(0)
-/* Bit 1: 0 = SRAMA3_2 not shared; 1 = share for MCU_SYS */
-#define SUNXI_REMAP_SRAMA3_2_BIT	BIT(1)
+static const struct sunxi_rproc_att sun55i_rproc_att[] = {
+	/* dev addr (remote)    , sys addr (host PA)    , size                   , flags */
+	/* Space 0 Core Aliases -> Space 0 Host PA */
+	{ E907_SRAM_SPACE0_DA,     SUN55I_SRAM_SPACE0_SYS, SUN55I_SRAM_SPACE0_SIZE, ATT_IOMEM },
+	{ E907_SRAM_SPACE0_DA_ALT, SUN55I_SRAM_SPACE0_SYS, SUN55I_SRAM_SPACE0_SIZE, ATT_IOMEM },
+	{ E907_SRAM_C_DA,          SUN55I_SRAM_SPACE0_SYS, SUN55I_SRAM_SPACE0_SIZE, ATT_IOMEM },
+	{ SUN55I_SRAM_SPACE0_SYS,  SUN55I_SRAM_SPACE0_SYS, SUN55I_SRAM_SPACE0_SIZE, ATT_IOMEM },
 
-/* XuanTie E906/E907 Control & Boot Address Registers (when CFG block is present) */
-#define E906_CTRL_REG			0x0000
-#define E906_STA_ADD_REG		0x0204
-
-static const struct sunxi_rproc_cfg sun55i_riscv_cfg = {
-	.name = "XuanTie E907 RISC-V",
+	/* Space 1 Core Aliases -> Space 1 Host PA */
+	{ E907_SRAM_SPACE1_DA,     SUN55I_SRAM_SPACE1_SYS, SUN55I_SRAM_SPACE1_SIZE, ATT_IOMEM },
+	{ E907_SRAM_SPACE1_DA_ALT, SUN55I_SRAM_SPACE1_SYS, SUN55I_SRAM_SPACE1_SIZE, ATT_IOMEM },
+	{ SUN55I_SRAM_SPACE1_SYS,  SUN55I_SRAM_SPACE1_SYS, SUN55I_SRAM_SPACE1_SIZE, ATT_IOMEM },
 };
+
+const struct sunxi_rproc_cfg sun55i_riscv_cfg = {
+	.name = "XuanTie E907 RISC-V",
+	.att = sun55i_rproc_att,
+	.att_size = ARRAY_SIZE(sun55i_rproc_att),
+	.has_remap_reg = true,
+	.boot_reg_offset = E906_STA_ADD_REG,
+};
+
+#if IS_ENABLED(CONFIG_SUNXI_REMOTEPROC_KUNIT_TEST)
+EXPORT_SYMBOL_GPL(sun55i_riscv_cfg);
+#endif
 
 static void sunxi_rproc_vq_work(struct work_struct *work)
 {
@@ -76,6 +87,7 @@ static irqreturn_t sunxi_rproc_crash_handler(int irq, void *data)
 int sunxi_rproc_prepare(struct rproc *rproc)
 {
 	struct sunxi_rproc *priv = rproc->priv;
+	const struct sunxi_rproc_cfg *cfg = priv->cfg ? priv->cfg : &sun55i_riscv_cfg;
 	int ret;
 
 	/* 1. Deassert configuration & SRAM bus resets */
@@ -149,7 +161,7 @@ int sunxi_rproc_prepare(struct rproc *rproc)
 	/*
 	 * 4b. Enable SRAMA3_2 for MCU_SYS (RISC-V) via REMAP_CTRL_REG bit 1.
 	 */
-	if (priv->remap_va) {
+	if (cfg->has_remap_reg && priv->remap_va) {
 		u32 remap_val = readl(priv->remap_va);
 
 		remap_val |= SUNXI_REMAP_SRAMA3_2_BIT;
@@ -205,9 +217,10 @@ EXPORT_SYMBOL_GPL(sunxi_rproc_prepare);
 int sunxi_rproc_unprepare(struct rproc *rproc)
 {
 	struct sunxi_rproc *priv = rproc->priv;
+	const struct sunxi_rproc_cfg *cfg = priv->cfg ? priv->cfg : &sun55i_riscv_cfg;
 
 	/* Symmetrical CCU unwinding */
-	if (priv->remap_va) {
+	if (cfg->has_remap_reg && priv->remap_va) {
 		u32 remap_val = readl(priv->remap_va);
 
 		remap_val &= ~SUNXI_REMAP_SRAMA3_2_BIT;
@@ -248,10 +261,11 @@ EXPORT_SYMBOL_GPL(sunxi_rproc_unprepare);
 int sunxi_rproc_start(struct rproc *rproc)
 {
 	struct sunxi_rproc *priv = rproc->priv;
+	const struct sunxi_rproc_cfg *cfg = priv->cfg ? priv->cfg : &sun55i_riscv_cfg;
 	int ret;
 
 	dev_info(priv->dev, "Starting %s core at entry 0x%llx\n",
-		 priv->cfg ? priv->cfg->name : "remote", (u64)rproc->bootaddr);
+		 cfg->name ? cfg->name : "remote", (u64)rproc->bootaddr);
 
 	if (rproc->bootaddr > U32_MAX)
 		return -EINVAL;
@@ -286,7 +300,7 @@ int sunxi_rproc_start(struct rproc *rproc)
 
 	/* Program boot vector now that the CFG block bus is live */
 	if (priv->cfg_va) {
-		writel((u32)rproc->bootaddr, priv->cfg_va + E906_STA_ADD_REG);
+		writel((u32)rproc->bootaddr, priv->cfg_va + cfg->boot_reg_offset);
 		dev_dbg(priv->dev, "STA_ADD set to 0x%08x\n", (u32)rproc->bootaddr);
 	}
 
@@ -300,9 +314,10 @@ EXPORT_SYMBOL_GPL(sunxi_rproc_start);
 int sunxi_rproc_stop(struct rproc *rproc)
 {
 	struct sunxi_rproc *priv = rproc->priv;
+	const struct sunxi_rproc_cfg *cfg = priv->cfg ? priv->cfg : &sun55i_riscv_cfg;
 
 	dev_info(priv->dev, "Halting %s core...\n",
-		 priv->cfg ? priv->cfg->name : "remote");
+		 cfg->name ? cfg->name : "remote");
 
 	/*
 	 * Assert reset first so the core stops generating mailbox interrupts,
@@ -356,9 +371,32 @@ void sunxi_rproc_kick(struct rproc *rproc, int vqid)
 EXPORT_SYMBOL_GPL(sunxi_rproc_kick);
 #endif
 
+static int sunxi_rproc_da_to_sys(struct sunxi_rproc *priv, u64 da,
+				 size_t len, u64 *sys, bool *is_iomem)
+{
+	const struct sunxi_rproc_cfg *cfg = priv->cfg ? priv->cfg : &sun55i_riscv_cfg;
+	size_t i;
+
+	if (cfg->att) {
+		for (i = 0; i < cfg->att_size; i++) {
+			const struct sunxi_rproc_att *att = &cfg->att[i];
+
+			if (da >= att->da && (da + len) <= (att->da + att->size)) {
+				*sys = att->sa + (da - att->da);
+				if (is_iomem)
+					*is_iomem = !!(att->flags & ATT_IOMEM);
+				return 0;
+			}
+		}
+	}
+
+	return -ENOENT;
+}
+
 void *sunxi_rproc_da_to_va(struct rproc *rproc, u64 da, size_t len, bool *is_iomem)
 {
 	struct sunxi_rproc *priv = rproc->priv;
+	u64 sys;
 
 	if (len == 0)
 		return NULL;
@@ -373,85 +411,57 @@ void *sunxi_rproc_da_to_va(struct rproc *rproc, u64 da, size_t len, bool *is_iom
 		return NULL;
 
 	/*
-	 * 1. Dedicated MCU Local SRAM Space 0 (Resource "r_sram" / "sram")
-	 *
-	 * Valid core-local DA aliases for Space 0 on XuanTie E907:
-	 *   Host PA      (e.g. 0x07280000 — as seen by the ARM host)
-	 *   0x3ff80000   (E907_SRAM_SPACE0_DA, primary TRM alias)
-	 *   0x3ffc0000   (E907_SRAM_SPACE0_DA_ALT, secondary alias)
-	 *   0x00020000   (PubSRAM-C alias used by older E906 firmware)
-	 *
-	 * 0x40000000 (E907_SRAM_SPACE1_DA) is NOT a Space 0 alias — it
-	 * belongs exclusively to Space 1 (r_sram1). Including it here
-	 * would silently redirect Space 1 accesses into the wrong window.
+	 * 1. Translate core-local device addresses (DA) to system bus
+	 * addresses (Host PA) using the SoC address translation table (ATT).
 	 */
-	if (priv->r_sram_va) {
-		/* Host physical address view */
-		if (da >= priv->r_sram_phys &&
-		    (da + len) <= (priv->r_sram_phys + priv->r_sram_size)) {
-			if (is_iomem)
-				*is_iomem = true;
-			return (__force void *)(priv->r_sram_va + (da - priv->r_sram_phys));
-		}
-		/* High SRAM Space 0 views (0x3ff80000 / 0x3ffc0000) */
-		if (da >= 0x3ff80000 && (da + len) <= (0x3ff80000 + priv->r_sram_size)) {
-			if (is_iomem)
-				*is_iomem = true;
-			return (__force void *)(priv->r_sram_va + (da - 0x3ff80000));
-		}
-		if (da >= 0x3ffc0000 && (da + len) <= (0x3ffc0000 + priv->r_sram_size)) {
-			if (is_iomem)
-				*is_iomem = true;
-			return (__force void *)(priv->r_sram_va + (da - 0x3ffc0000));
-		}
-		/* PubSRAM C DA view (0x00020000) */
-		if (da >= 0x00020000 && (da + len) <= (0x00020000 + priv->r_sram_size)) {
-			if (is_iomem)
-				*is_iomem = true;
-			return (__force void *)(priv->r_sram_va + (da - 0x00020000));
-		}
+	if (sunxi_rproc_da_to_sys(priv, da, len, &sys, is_iomem) == 0) {
+		if (priv->r_sram_va && sys >= priv->r_sram_phys &&
+		    (sys + len) <= (priv->r_sram_phys + priv->r_sram_size))
+			return (__force void *)(priv->r_sram_va + (sys - priv->r_sram_phys));
+
+		if (priv->r_sram1_va && sys >= priv->r_sram1_phys &&
+		    (sys + len) <= (priv->r_sram1_phys + priv->r_sram1_size))
+			return (__force void *)(priv->r_sram1_va + (sys - priv->r_sram1_phys));
+
+		if (priv->dram_va && sys >= priv->dram_phys &&
+		    (sys + len) <= (priv->dram_phys + priv->dram_size))
+			return (__force void *)(priv->dram_va + (sys - priv->dram_phys));
+
+		if (priv->trace_va && sys >= priv->trace_phys &&
+		    (sys + len) <= (priv->trace_phys + priv->trace_size))
+			return (__force void *)(priv->trace_va + (sys - priv->trace_phys));
 	}
 
-	/* 2. Switchable MCU Local SRAM Space 1 ("r_sram1", Core DA 0x40040000) */
-	if (priv->r_sram1_va) {
-		/* Host physical address view (e.g., 0x072c0000 or 0x07280000) */
-		if (da >= priv->r_sram1_phys &&
-		    (da + len) <= (priv->r_sram1_phys + priv->r_sram1_size)) {
-			if (is_iomem)
-				*is_iomem = true;
-			return (__force void *)(priv->r_sram1_va + (da - priv->r_sram1_phys));
-		}
-		/* Core DA view: 0x40000000 (Space 1) and 0x40040000 */
-		if (da >= 0x40000000 &&
-		    (da + len) <= (0x40000000 + priv->r_sram1_size)) {
-			if (is_iomem)
-				*is_iomem = true;
-			return (__force void *)(priv->r_sram1_va + (da - 0x40000000));
-		}
-		if (da >= 0x40040000 &&
-		    (da + len) <= (0x40040000 + priv->r_sram1_size)) {
-			if (is_iomem)
-				*is_iomem = true;
-			return (__force void *)(priv->r_sram1_va + (da - 0x40040000));
-		}
+	/*
+	 * 2. Device Tree Memory Regions (Trace buffer, DRAM carveout, or
+	 * dynamically-assigned SRAM regions whose host PA is supplied via DT).
+	 */
+	if (priv->trace_va && da >= priv->trace_phys &&
+	    (da + len) <= (priv->trace_phys + priv->trace_size)) {
+		if (is_iomem)
+			*is_iomem = false;
+		return (__force void *)(priv->trace_va + (da - priv->trace_phys));
 	}
 
-	/* 4. Trace / Reserved Memory (from Device Tree) */
-	if (priv->trace_va) {
-		if (da >= priv->trace_phys && (da + len) <= (priv->trace_phys + priv->trace_size)) {
-			if (is_iomem)
-				*is_iomem = false;
-			return priv->trace_va + (da - priv->trace_phys);
-		}
+	if (priv->dram_va && da >= priv->dram_phys &&
+	    (da + len) <= (priv->dram_phys + priv->dram_size)) {
+		if (is_iomem)
+			*is_iomem = false;
+		return (__force void *)(priv->dram_va + (da - priv->dram_phys));
 	}
 
-	/* 5. Boot DRAM Carveout (Resource "dram" - Core/Host 0x40014000) */
-	if (priv->dram_va) {
-		if (da >= priv->dram_phys && (da + len) <= (priv->dram_phys + priv->dram_size)) {
-			if (is_iomem)
-				*is_iomem = false;
-			return priv->dram_va + (da - priv->dram_phys);
-		}
+	if (priv->r_sram_va && da >= priv->r_sram_phys &&
+	    (da + len) <= (priv->r_sram_phys + priv->r_sram_size)) {
+		if (is_iomem)
+			*is_iomem = true;
+		return (__force void *)(priv->r_sram_va + (da - priv->r_sram_phys));
+	}
+
+	if (priv->r_sram1_va && da >= priv->r_sram1_phys &&
+	    (da + len) <= (priv->r_sram1_phys + priv->r_sram1_size)) {
+		if (is_iomem)
+			*is_iomem = true;
+		return (__force void *)(priv->r_sram1_va + (da - priv->r_sram1_phys));
 	}
 
 	/*
