@@ -377,6 +377,9 @@ static int sunxi_rproc_da_to_sys(struct sunxi_rproc *priv, u64 da,
 	const struct sunxi_rproc_cfg *cfg = priv->cfg ? priv->cfg : &sun55i_riscv_cfg;
 	size_t i;
 
+	if (len == 0 || da > U64_MAX - len)
+		return -EINVAL;
+
 	if (cfg->att) {
 		for (i = 0; i < cfg->att_size; i++) {
 			const struct sunxi_rproc_att *att = &cfg->att[i];
@@ -398,16 +401,13 @@ void *sunxi_rproc_da_to_va(struct rproc *rproc, u64 da, size_t len, bool *is_iom
 	struct sunxi_rproc *priv = rproc->priv;
 	u64 sys;
 
-	if (len == 0)
-		return NULL;
-
 	/*
-	 * Reject any da+len combination that overflows u64. A crafted ELF
-	 * with da near U64_MAX could wrap da+len to a small value, bypassing
-	 * every upper-bound check below and allowing arbitrary kernel memory
+	 * Reject zero length and any da+len combination that overflows u64.
+	 * A crafted ELF with da near U64_MAX could wrap da+len to a small value,
+	 * bypassing upper-bound checks and allowing arbitrary kernel memory
 	 * to be mapped during firmware loading.
 	 */
-	if (da > U64_MAX - len)
+	if (len == 0 || da > U64_MAX - len)
 		return NULL;
 
 	/*
