@@ -85,6 +85,16 @@ irqreturn_t sun55i_msgbox_irq(int irq, void *dev_id)
 				continue;
 
 			chan_idx = local_n * SUN55I_CHANS_PER_PROC + p;
+
+			/*
+			 * Clear pending status BEFORE draining the FIFO to seal
+			 * the TOCTOU race: any new message arriving while draining
+			 * will re-assert the hardware pending bit, guaranteeing
+			 * a subsequent interrupt and preventing blackholed IPC data.
+			 */
+			writel(RD_IRQ_PEND_BIT(p),
+			       local_base + SUNXI_MSGBOX_READ_IRQ_STATUS(local_n));
+
 			/* Cap drain at FIFO_MAX to prevent CPU lockup from a runaway remote */
 			for (i = 0; i < SUN55I_FIFO_MAX; i++) {
 				u32 msg;
@@ -96,9 +106,6 @@ irqreturn_t sun55i_msgbox_irq(int irq, void *dev_id)
 				mbox_chan_received_data(&mbox->controller.chans[chan_idx], &msg);
 			}
 
-			/* Write-1-to-clear the interrupt status bit */
-			writel(RD_IRQ_PEND_BIT(p),
-			       local_base + SUNXI_MSGBOX_READ_IRQ_STATUS(local_n));
 			ret = IRQ_HANDLED;
 		}
 	}
