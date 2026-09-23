@@ -11,7 +11,7 @@ maintainers:
   - Samuel Holland <samuel@sholland.org>
   - Tim Michals <tcmichals@gmail.com>
 
-description: |
+description:
   The Allwinner T527, A527, and A523 (sun55i) SoCs integrate a T-Head
   (XuanTie) E906 or E907 RISC-V co-processor alongside the ARM Cortex-A55
   cluster. The co-processor runs bare-metal firmware loaded and lifecycle-
@@ -24,62 +24,61 @@ description: |
 
 properties:
   compatible:
-    enum:
-      - allwinner,sun55i-a523-rproc
-      - allwinner,sun55i-a527-rproc
-      - allwinner,sun55i-t527-rproc
+    const: allwinner,sun55i-a523-rproc
 
   reg:
     minItems: 1
     maxItems: 4
-    description: |
+    description:
       Memory-mapped register regions. The following named regions are
-      supported (all optional except at least one of r_sram or r_sram1):
-        "cfg"    - RISC-V core control and boot-vector registers (0x07130000)
-        "r_sram" - Dedicated MCU SRAM Space 0 (0x07280000 / 0x07200000; 256-512 KB)
-        "r_sram1"- Switchable MCU SRAM Space 1 / SRAMA3_2 (0x072c0000 / 0x07280000; 256-512 KB)
-        "remap"  - Hardware Remap Control Register (offset 0x364)
+      supported (all optional except at least one of r_sram or r_sram1) -
+      "cfg" for RISC-V core control and boot-vector registers,
+      "r_sram" for dedicated MCU SRAM Space 0,
+      "r_sram1" for switchable MCU SRAM Space 1,
+      "remap" for the hardware remap control register.
 
   reg-names:
     minItems: 1
     maxItems: 4
     items:
-      enum: [cfg, r_sram, r_sram1, remap]
+      - const: cfg
+      - const: r_sram
+      - const: r_sram1
+      - const: remap
 
   clocks:
     minItems: 1
     maxItems: 5
-    description: |
-      CCU clocks required for co-processor operation. Typical clocks are
-      "parent" (PLL source), "bus" (interconnect gate), "core" (CPU gate),
-      "sram" (SRAM interconnect gate), and "msgbox" (mailbox interconnect gate).
 
   clock-names:
     minItems: 1
     maxItems: 5
     items:
-      enum: [parent, bus, core, sram, msgbox]
+      - const: parent
+      - const: bus
+      - const: core
+      - const: sram
+      - const: msgbox
 
   resets:
     minItems: 1
     maxItems: 4
-    description: |
-      CCU reset lines. Typical resets are "cfg" (configuration block),
-      "core" (CPU core), "sram" (SRAM interconnect), and "msgbox" (mailbox interconnect).
 
   reset-names:
     minItems: 1
     maxItems: 4
     items:
-      enum: [cfg, core, sram, msgbox]
+      - const: cfg
+      - const: core
+      - const: sram
+      - const: msgbox
 
   mboxes:
-    minItems: 2
     maxItems: 2
     description:
-      Exactly two mailbox channels from the Allwinner CPUX_MSGBOX controller —
+      Exactly two mailbox channels from the Allwinner CPUX_MSGBOX controller,
       one receive channel (RISC-V-to-ARM) and one transmit channel
-      (ARM-to-RISC-V) — used for VirtIO RPMsg kick notifications.
+      (ARM-to-RISC-V), used for VirtIO RPMsg kick notifications.
 
   mbox-names:
     items:
@@ -87,21 +86,23 @@ properties:
       - const: tx
 
   firmware-name:
-    $ref: /schemas/types.yaml#/definitions/string
+    maxItems: 1
     description:
       Name of the ELF firmware image to load from /lib/firmware/.
       Defaults to "riscv-firmware.elf" if not specified.
 
   memory-region:
-    description:
-      Optional phandle list of reserved memory regions for VirtIO vring
-      buffers or DDR carveouts. Region names "vram" and "dram" are
-      recognized; "trace" selects the RemoteProc trace buffer carveout.
+    minItems: 1
+    maxItems: 3
+    description: phandle list of reserved memory regions.
 
   memory-region-names:
-    description:
-      Names corresponding to the memory-region phandle list entries.
-      Recognized values are "vram", "dram", and "trace".
+    minItems: 1
+    maxItems: 3
+    items:
+      - const: vram
+      - const: dram
+      - const: trace
 
   interrupts:
     maxItems: 1
@@ -112,8 +113,6 @@ properties:
   interrupt-names:
     items:
       - const: crash
-
-  status: true
 
 required:
   - compatible
@@ -130,10 +129,6 @@ additionalProperties: false
 
 examples:
   - |
-    #include <dt-bindings/clock/sun55i-a523-ccu.h>
-    #include <dt-bindings/reset/sun55i-a523-ccu.h>
-    #include <dt-bindings/interrupt-controller/arm-gic.h>
-
     remoteproc@7130000 {
         compatible = "allwinner,sun55i-a523-rproc";
         reg = <0x07130000 0x1000>,
@@ -141,12 +136,11 @@ examples:
               <0x072c0000 0x40000>,
               <0x07010364 0x4>;
         reg-names = "cfg", "r_sram", "r_sram1", "remap";
-        clocks = <&mcu_ccu CLK_BUS_MCU_RISCV_CFG>,
-                 <&mcu_ccu CLK_MCU_RISCV>;
+        clocks = <&mcu_ccu 3>, <&mcu_ccu 4>;
         clock-names = "bus", "core";
-        resets = <&mcu_ccu RST_BUS_MCU_RISCV_CFG>,
-                 <&mcu_ccu RST_BUS_MCU_RISCV_CORE>;
+        resets = <&mcu_ccu 0>, <&mcu_ccu 1>;
         reset-names = "cfg", "core";
-        mboxes = <&msgbox 0>, <&msgbox 1>;
+        mboxes = <&msgbox 8>, <&msgbox 9>;
         mbox-names = "rx", "tx";
-        firmware-name = "testBasic.elf";
+        firmware-name = "riscv-firmware.elf";
+    };

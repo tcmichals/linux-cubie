@@ -10,7 +10,7 @@ maintainers:
   - Tim Michals <tcmichals@gmail.com>
   - Samuel Holland <samuel@sholland.org>
 
-description: |
+description:
   The hardware message box on sun55i (A523, A527, T527) and sun60i (A733)
   SoCs is a 4-port multi-processor mailbox controller connecting the ARM
   Cortex-A55 host cluster, HiFi4 Audio DSP, Power Management Unit (CPUS),
@@ -28,9 +28,8 @@ properties:
       - allwinner,sun60i-a733-msgbox
 
   reg:
-    minItems: 4
     maxItems: 4
-    description: |
+    description:
       Register banks for each of the four processor ports. Each port has
       an independent 256-byte register bank.
 
@@ -43,18 +42,16 @@ properties:
 
   clocks:
     maxItems: 1
-    description: bus clock
 
   resets:
     maxItems: 1
-    description: bus reset
 
   interrupts:
-    minItems: 1
     maxItems: 4
-    description: |
-      One interrupt per processor port. The host port interrupt is required;
-      remote port interrupts are optional.
+    description:
+      One interrupt per processor port (ARM, DSP, CPUS, RISC-V).
+      The ARM host port interrupt is required; remote port interrupts
+      are optional. Provide only the interrupts that are used.
 
   '#mbox-cells':
     const: 1
@@ -90,4 +87,3 @@ examples:
                      <GIC_SPI 174 IRQ_TYPE_LEVEL_HIGH>;
         #mbox-cells = <1>;
     };
-
