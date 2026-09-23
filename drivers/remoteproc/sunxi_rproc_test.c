@@ -438,6 +438,40 @@ static void test_da_to_va_unaligned_lengths(struct kunit *test)
 	KUNIT_EXPECT_PTR_EQ(test, va, (void *)(FAKE_SRAM1_VA + 7));
 }
 
+static void test_da_to_va_malformed_rsc_table_entry(struct kunit *test)
+{
+	struct test_context *ctx = create_test_ctx(test);
+
+	/*
+	 * Malformed resource table entry: firmware requests a VirtIO vring
+	 * or carveout pointing to an invalid device address (e.g. 0xDEADBEEF).
+	 * da_to_va must return NULL, prompting rproc_elf_load_rsc_table to fail
+	 * safely rather than writing into unmapped space.
+	 */
+	KUNIT_EXPECT_NULL(test, sunxi_rproc_da_to_va(&ctx->rproc, 0xDEADBEEF, 0x1000, NULL));
+
+	/* Out-of-window address between SRAM A3 and Space 1 (0x3FFD0000) */
+	KUNIT_EXPECT_NULL(test, sunxi_rproc_da_to_va(&ctx->rproc, 0x3FFD0000, 0x1000, NULL));
+}
+
+static void test_da_to_va_corrupted_elf_overflow_segment(struct kunit *test)
+{
+	struct test_context *ctx = create_test_ctx(test);
+
+	/*
+	 * Corrupted ELF header: segment has an excessive memsz that wraps around
+	 * 64-bit integer limits or spans across window bounds.
+	 */
+	KUNIT_EXPECT_NULL(test, sunxi_rproc_da_to_va(&ctx->rproc, 0x3FFC0000, (size_t)-1, NULL));
+	KUNIT_EXPECT_NULL(test, sunxi_rproc_da_to_va(&ctx->rproc, 0x40000000, (size_t)-16, NULL));
+
+	/* Segment starts near end of Space 0 and extends 4KB beyond valid SRAM */
+	KUNIT_EXPECT_NULL(test,
+			  sunxi_rproc_da_to_va(&ctx->rproc,
+					       0x3FFC0000 + A527_SRAM_SIZE - 0x100,
+					       0x200, NULL));
+}
+
 static void test_start_a733_mode1_and_mode2_bootaddr(struct kunit *test)
 {
 	struct test_context *ctx = create_test_ctx(test);
@@ -619,6 +653,8 @@ static struct kunit_case sunxi_rproc_test_cases[] = {
 	KUNIT_CASE(test_da_to_va_exact_upper_boundary_dram),
 	KUNIT_CASE(test_da_to_va_a733_sram_a2_layout),
 	KUNIT_CASE(test_da_to_va_unaligned_lengths),
+	KUNIT_CASE(test_da_to_va_malformed_rsc_table_entry),
+	KUNIT_CASE(test_da_to_va_corrupted_elf_overflow_segment),
 	/* Lifecycle: start and stop */
 	KUNIT_CASE(test_start_bootaddr_programming),
 	KUNIT_CASE(test_start_a733_mode1_and_mode2_bootaddr),
