@@ -23,6 +23,7 @@
 #include <linux/reset.h>
 
 #include "remoteproc_internal.h"
+#include "sunxi_rproc.h"
 
 #define DRIVER_NAME "sunxi-rproc"
 
@@ -33,76 +34,12 @@
 /* Bit 1: 0 = SRAMA3_2 not shared; 1 = share for MCU_SYS */
 #define SUNXI_REMAP_SRAMA3_2_BIT	BIT(1)
 
-/* XuanTie core-local view of dedicated SRAM Spaces (E906/E907) */
-#define E907_SRAM_C_DA			0x00020000
-#define E907_SRAM_SPACE0_DA		0x3ff80000
-#define E907_SRAM_SPACE0_DA_ALT		0x3ffc0000
-#define E907_SRAM_SPACE1_DA		0x40000000
-
 /* XuanTie E906/E907 Control & Boot Address Registers (when CFG block is present) */
 #define E906_CTRL_REG			0x0000
 #define E906_STA_ADD_REG		0x0204
 
-struct sunxi_rproc_cfg {
-	const char *name;
-};
-
 static const struct sunxi_rproc_cfg sun55i_riscv_cfg = {
 	.name = "XuanTie E907 RISC-V",
-};
-
-struct sunxi_rproc {
-	struct rproc *rproc;
-	struct device *dev;
-	const struct sunxi_rproc_cfg *cfg;
-
-	/* CCU Clocks & Resets */
-	struct clk *clk_parent;
-	struct clk *clk_bus;
-	struct clk *clk_core;
-	struct clk *clk_sram;
-	struct clk *clk_msgbox;
-	struct reset_control *rst_cfg;
-	struct reset_control *rst_core;
-	struct reset_control *rst_sram;
-	struct reset_control *rst_msgbox;
-
-	/* Hardware Memory Windows (Dedicated SRAM, Switchable SRAM, Remap) */
-	void __iomem *cfg_va;
-	phys_addr_t cfg_phys;
-
-	void __iomem *remap_va;
-	phys_addr_t remap_phys;
-
-	void __iomem *r_sram_va;
-	phys_addr_t r_sram_phys;
-	size_t r_sram_size;
-
-	void __iomem *r_sram1_va;
-	phys_addr_t r_sram1_phys;
-	size_t r_sram1_size;
-
-	void *dram_va;
-	phys_addr_t dram_phys;
-	size_t dram_size;
-
-	/* Trace / DDR Reserved Memory Window */
-	void *trace_va;
-	phys_addr_t trace_phys;
-	size_t trace_size;
-
-	/* Reserved Memory & Mailbox State */
-	bool has_reserved_mem;
-	struct mbox_client cl;
-	struct mbox_chan *tx_chan;
-	struct mbox_chan *rx_chan;
-	struct work_struct vq_work;
-	/*
-	 * Stable storage for the VirtIO queue ID sent to the mailbox.
-	 * mbox_send_message() is non-blocking (tx_block=false), so the
-	 * message pointer must outlive the kick() call frame.
-	 */
-	u32 kick_msg;
 };
 
 static void sunxi_rproc_vq_work(struct work_struct *work)
@@ -127,12 +64,13 @@ static irqreturn_t sunxi_rproc_crash_handler(int irq, void *data)
 
 	dev_err(priv->dev, "Hardware crash event received from %s core!\n",
 		priv->cfg ? priv->cfg->name : "remote");
+	disable_irq_nosync(irq);
 	rproc_report_crash(rproc, RPROC_FATAL_ERROR);
 
 	return IRQ_HANDLED;
 }
 
-static int sunxi_rproc_prepare(struct rproc *rproc)
+int sunxi_rproc_prepare(struct rproc *rproc)
 {
 	struct sunxi_rproc *priv = rproc->priv;
 	int ret;
@@ -257,7 +195,11 @@ err_assert_cfg:
 	return ret;
 }
 
-static int sunxi_rproc_unprepare(struct rproc *rproc)
+#if IS_ENABLED(CONFIG_SUNXI_REMOTEPROC_KUNIT_TEST)
+EXPORT_SYMBOL_GPL(sunxi_rproc_prepare);
+#endif
+
+int sunxi_rproc_unprepare(struct rproc *rproc)
 {
 	struct sunxi_rproc *priv = rproc->priv;
 
@@ -296,7 +238,11 @@ static int sunxi_rproc_unprepare(struct rproc *rproc)
 	return 0;
 }
 
-static int sunxi_rproc_start(struct rproc *rproc)
+#if IS_ENABLED(CONFIG_SUNXI_REMOTEPROC_KUNIT_TEST)
+EXPORT_SYMBOL_GPL(sunxi_rproc_unprepare);
+#endif
+
+int sunxi_rproc_start(struct rproc *rproc)
 {
 	struct sunxi_rproc *priv = rproc->priv;
 	int ret;
@@ -306,6 +252,10 @@ static int sunxi_rproc_start(struct rproc *rproc)
 
 	if (rproc->bootaddr > U32_MAX)
 		return -EINVAL;
+
+	/* Re-enable crash IRQ on start if it was disabled during crash handling */
+	if (priv->crash_irq > 0)
+		enable_irq(priv->crash_irq);
 
 	/*
 	 * Deassert reset before writing the boot vector register.
@@ -338,7 +288,11 @@ static int sunxi_rproc_start(struct rproc *rproc)
 	return 0;
 }
 
-static int sunxi_rproc_stop(struct rproc *rproc)
+#if IS_ENABLED(CONFIG_SUNXI_REMOTEPROC_KUNIT_TEST)
+EXPORT_SYMBOL_GPL(sunxi_rproc_start);
+#endif
+
+int sunxi_rproc_stop(struct rproc *rproc)
 {
 	struct sunxi_rproc *priv = rproc->priv;
 
@@ -361,7 +315,11 @@ static int sunxi_rproc_stop(struct rproc *rproc)
 	return 0;
 }
 
-static void sunxi_rproc_kick(struct rproc *rproc, int vqid)
+#if IS_ENABLED(CONFIG_SUNXI_REMOTEPROC_KUNIT_TEST)
+EXPORT_SYMBOL_GPL(sunxi_rproc_stop);
+#endif
+
+void sunxi_rproc_kick(struct rproc *rproc, int vqid)
 {
 	struct sunxi_rproc *priv = rproc->priv;
 	int ret;
@@ -383,7 +341,11 @@ static void sunxi_rproc_kick(struct rproc *rproc, int vqid)
 	mbox_client_txdone(priv->tx_chan, 0);
 }
 
-static void *sunxi_rproc_da_to_va(struct rproc *rproc, u64 da, size_t len, bool *is_iomem)
+#if IS_ENABLED(CONFIG_SUNXI_REMOTEPROC_KUNIT_TEST)
+EXPORT_SYMBOL_GPL(sunxi_rproc_kick);
+#endif
+
+void *sunxi_rproc_da_to_va(struct rproc *rproc, u64 da, size_t len, bool *is_iomem)
 {
 	struct sunxi_rproc *priv = rproc->priv;
 
@@ -489,6 +451,10 @@ static void *sunxi_rproc_da_to_va(struct rproc *rproc, u64 da, size_t len, bool 
 	return NULL;
 }
 
+#if IS_ENABLED(CONFIG_SUNXI_REMOTEPROC_KUNIT_TEST)
+EXPORT_SYMBOL_GPL(sunxi_rproc_da_to_va);
+#endif
+
 static int sunxi_rproc_parse_fw(struct rproc *rproc, const struct firmware *fw)
 {
 	int ret;
@@ -501,7 +467,7 @@ static int sunxi_rproc_parse_fw(struct rproc *rproc, const struct firmware *fw)
 	return ret;
 }
 
-static const struct rproc_ops sunxi_rproc_ops = {
+const struct rproc_ops sunxi_rproc_ops = {
 	.prepare        = sunxi_rproc_prepare,
 	.unprepare      = sunxi_rproc_unprepare,
 	.start          = sunxi_rproc_start,
@@ -515,6 +481,10 @@ static const struct rproc_ops sunxi_rproc_ops = {
 	.sanity_check   = rproc_elf_sanity_check,
 	.coredump       = rproc_coredump,
 };
+
+#if IS_ENABLED(CONFIG_SUNXI_REMOTEPROC_KUNIT_TEST)
+EXPORT_SYMBOL_GPL(sunxi_rproc_ops);
+#endif
 
 static int sunxi_rproc_register_mem(struct platform_device *pdev, struct rproc *rproc)
 {
@@ -571,7 +541,7 @@ static int sunxi_rproc_register_mem(struct platform_device *pdev, struct rproc *
 			dev_warn(dev, "failed to map 'remap' register\n");
 	}
 
-	/* 4b. Map Boot DRAM Carveout ("dram" or memory-region "vram"/"dram") */
+	/* 4b. Map Boot DRAM Carveout (Resource "dram" if defined in reg) */
 	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "dram");
 	if (res) {
 		priv->dram_phys = res->start;
@@ -581,33 +551,6 @@ static int sunxi_rproc_register_mem(struct platform_device *pdev, struct rproc *
 			priv->dram_va = devm_ioremap_wc(dev, res->start, resource_size(res));
 		if (!priv->dram_va)
 			dev_warn(dev, "failed to map 'dram' resource\n");
-	} else if (dev->of_node) {
-		int idx = of_property_match_string(dev->of_node, "memory-region-names", "vram");
-
-		if (idx < 0)
-			idx = of_property_match_string(dev->of_node, "memory-region-names", "dram");
-		if (idx >= 0) {
-			struct device_node *rmem_np;
-
-			rmem_np = of_parse_phandle(dev->of_node, "memory-region", idx);
-			if (rmem_np) {
-				struct resource r;
-
-				if (of_address_to_resource(rmem_np, 0, &r) == 0) {
-					priv->dram_phys = r.start;
-					priv->dram_size = resource_size(&r);
-					priv->dram_va = devm_memremap(dev, r.start,
-								      resource_size(&r),
-								      MEMREMAP_WB);
-					if (!priv->dram_va)
-						priv->dram_va = devm_ioremap_wc(dev, r.start,
-										resource_size(&r));
-					dev_info(dev, "mapped DT vram reserved-memory %pa+%zu\n",
-						 &priv->dram_phys, priv->dram_size);
-				}
-				of_node_put(rmem_np);
-			}
-		}
 	}
 
 	dev_info(dev, "Memory resources: r_sram=%s, r_sram1=%s, remap=%s, cfg=%s, dram=%s\n",
@@ -617,7 +560,7 @@ static int sunxi_rproc_register_mem(struct platform_device *pdev, struct rproc *
 		 priv->cfg_va ? "yes" : "no",
 		 priv->dram_va ? "yes" : "no");
 
-	/* 6. Map Trace Buffer / Reserved Memory from Device Tree */
+	/* 5. Map Trace Buffer (Resource "trace" if defined in reg) */
 	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "trace");
 	if (res) {
 		priv->trace_phys = res->start;
@@ -627,32 +570,6 @@ static int sunxi_rproc_register_mem(struct platform_device *pdev, struct rproc *
 			priv->trace_va = devm_ioremap_wc(dev, res->start, resource_size(res));
 		dev_info(dev, "mapped 'trace' mmio resource %pa+%zu\n",
 			 &priv->trace_phys, priv->trace_size);
-	} else if (dev->of_node) {
-		struct device_node *rmem_np;
-		int idx;
-
-		/* Check memory-region phandle only if explicitly named 'trace' */
-		idx = of_property_match_string(dev->of_node, "memory-region-names", "trace");
-		if (idx >= 0) {
-			rmem_np = of_parse_phandle(dev->of_node, "memory-region", idx);
-			if (rmem_np) {
-				struct resource r;
-
-				if (of_address_to_resource(rmem_np, 0, &r) == 0) {
-					priv->trace_phys = r.start;
-					priv->trace_size = resource_size(&r);
-					priv->trace_va = devm_memremap(dev, r.start,
-								       resource_size(&r),
-								       MEMREMAP_WB);
-					if (!priv->trace_va)
-						priv->trace_va = devm_ioremap_wc(dev, r.start,
-										 resource_size(&r));
-					dev_info(dev, "mapped DT trace reserved-memory %pa+%zu\n",
-						 &priv->trace_phys, priv->trace_size);
-				}
-				of_node_put(rmem_np);
-			}
-		}
 	}
 
 	return 0;
@@ -830,9 +747,13 @@ static int sunxi_rproc_probe(struct platform_device *pdev)
 						rproc);
 		if (ret)
 			dev_warn(dev, "failed to request crash IRQ %d: %d\n", crash_irq, ret);
+		else
+			priv->crash_irq = crash_irq;
 	}
 
 	/* 6. Mailbox IPC Client */
+	INIT_WORK(&priv->vq_work, sunxi_rproc_vq_work);
+
 	priv->cl.dev = dev;
 	priv->cl.rx_callback = sunxi_rproc_mb_rx_callback;
 	priv->cl.tx_block = false;
@@ -879,13 +800,6 @@ static int sunxi_rproc_probe(struct platform_device *pdev)
 	}
 
 skip_mbox:
-	/*
-	 * INIT_WORK must precede any error path that reaches err_mbox_release,
-	 * because cancel_work_sync() on an uninitialized work_struct triggers
-	 * a kernel BUG. Placing it here — before rproc_add() — ensures all
-	 * subsequent error paths are safe.
-	 */
-	INIT_WORK(&priv->vq_work, sunxi_rproc_vq_work);
 	platform_set_drvdata(pdev, rproc);
 
 	ret = rproc_add(rproc);
@@ -922,13 +836,18 @@ static void sunxi_rproc_remove(struct platform_device *pdev)
 
 	/*
 	 * Teardown order is critical:
-	 * 1. rproc_del() stops the remote core and tears down VirtIO/vring,
+	 * 1. Disable crash IRQ first so late hardware crash alerts cannot
+	 *    race against rproc_del() or report crashes on a deleted device.
+	 * 2. rproc_del() stops the remote core and tears down VirtIO/vring,
 	 *    which stops the hardware from generating further mailbox IRQs.
-	 * 2. cancel_work_sync() drains any in-flight vq_work. Calling this
+	 * 3. cancel_work_sync() drains any in-flight vq_work. Calling this
 	 *    before rproc_del() risks a late RX IRQ re-queuing work after
 	 *    cancel_work_sync() returns, executing on freed priv->rx_chan.
-	 * 3. Free mailbox channels only after the workqueue is fully drained.
+	 * 4. Free mailbox channels only after the workqueue is fully drained.
 	 */
+	if (priv->crash_irq > 0)
+		disable_irq(priv->crash_irq);
+
 	rproc_del(rproc);
 	cancel_work_sync(&priv->vq_work);
 

@@ -53,14 +53,12 @@ properties:
 
   clock-names:
     minItems: 1
-    maxItems: 5
     items:
-      enum:
-        - parent
-        - bus
-        - core
-        - sram
-        - msgbox
+      - const: bus
+      - const: core
+      - const: sram
+      - const: msgbox
+      - const: parent
 
   resets:
     minItems: 1
@@ -68,13 +66,11 @@ properties:
 
   reset-names:
     minItems: 1
-    maxItems: 4
     items:
-      enum:
-        - cfg
-        - core
-        - sram
-        - msgbox
+      - const: cfg
+      - const: core
+      - const: sram
+      - const: msgbox
 
   mboxes:
     maxItems: 2
@@ -96,17 +92,17 @@ properties:
 
   memory-region:
     minItems: 1
-    maxItems: 3
-    description: phandle list of reserved memory regions.
+    items:
+      - description: VirtIO vring buffer region (DDR carveout)
+      - description: DRAM firmware execution carveout
+      - description: RemoteProc trace buffer carveout
 
   memory-region-names:
     minItems: 1
-    maxItems: 3
     items:
-      enum:
-        - vram
-        - dram
-        - trace
+      - const: vram
+      - const: dram
+      - const: trace
 
   interrupts:
     maxItems: 1
