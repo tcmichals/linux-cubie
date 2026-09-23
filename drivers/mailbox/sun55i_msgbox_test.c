@@ -656,7 +656,7 @@ static void test_msgbox_controller_invariants(struct kunit *test)
 	struct mock_msgbox_fixture *fix = create_mock_fixture(test);
 
 	KUNIT_EXPECT_EQ(test, fix->mbox.controller.num_chans, SUN55I_NUM_CHANS);
-	KUNIT_EXPECT_PTR_EQ(test, fix->mbox.controller.chans, fix->chans);
+	KUNIT_EXPECT_PTR_EQ(test, fix->mbox.controller.chans, &fix->chans[0]);
 }
 
 static void test_msgbox_chan_ops_completeness(struct kunit *test)

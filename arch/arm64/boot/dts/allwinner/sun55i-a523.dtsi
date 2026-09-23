@@ -565,6 +565,23 @@
 			#dma-cells = <1>;
 		};
 
+		msgbox: mailbox@3003000 {
+			compatible = "allwinner,sun55i-a523-msgbox";
+			reg = <0x03003000 0x1000>,
+			      <0x07094000 0x1000>,
+			      <0x07120000 0x1000>,
+			      <0x07136000 0x1000>;
+			reg-names = "arm", "dsp", "cpus", "rv";
+			clocks = <&ccu CLK_BUS_MSGBOX>;
+			resets = <&ccu RST_BUS_MSGBOX>;
+			interrupts = <GIC_SPI 0 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 1 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 181 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 174 IRQ_TYPE_LEVEL_HIGH>;
+			interrupt-names = "arm", "dsp", "cpus", "rv";
+			#mbox-cells = <1>;
+		};
+
 		sid: efuse@3006000 {
 			compatible = "allwinner,sun55i-a523-sid",
 				     "allwinner,sun50i-a64-sid";
@@ -1085,22 +1102,6 @@
 			clock-names = "bus", "core", "reg";
 			resets = <&mcu_ccu RST_BUS_MCU_NPU>;
 			power-domains = <&ppu PD_NPU>;
-		};
-
-		msgbox: mailbox@3003000 {
-			compatible = "allwinner,sun55i-a523-msgbox";
-			reg = <0x03003000 0x1000>,
-			      <0x07094000 0x1000>,
-			      <0x07120000 0x1000>,
-			      <0x07136000 0x1000>;
-			reg-names = "arm", "dsp", "cpus", "rv";
-			clocks = <&ccu CLK_BUS_MSGBOX>;
-			resets = <&ccu RST_BUS_MSGBOX>;
-			interrupts = <GIC_SPI 0 IRQ_TYPE_LEVEL_HIGH>,
-				     <GIC_SPI 1 IRQ_TYPE_LEVEL_HIGH>,
-				     <GIC_SPI 181 IRQ_TYPE_LEVEL_HIGH>,
-				     <GIC_SPI 174 IRQ_TYPE_LEVEL_HIGH>;
-			#mbox-cells = <1>;
 		};
 
 		rproc: remoteproc@7130000 {
