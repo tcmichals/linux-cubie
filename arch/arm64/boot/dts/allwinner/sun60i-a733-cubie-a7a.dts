@@ -79,6 +79,8 @@
 		enable-active-high;
 		regulator-always-on;
 		regulator-boot-on;
+		startup-delay-us = <100000>;
+		off-on-delay-us = <100000>;
 		status = "okay";
 	};
 

@@ -28,14 +28,14 @@ static void sun60i_usb2_phy_hw_init(struct sun60i_usb2_phy *priv)
 	u32 val;
 
 	/*
-	 * Deassert PHY reset and enable ACLK/HCLK in SerDes top bridge (0x00030010).
-	 * Bit 21 (USB3P1_ONLY_UTMI_CLK_SEL) must remain 0 to preserve UTMI 60MHz PLL.
+	 * Deassert PHY reset and enable ACLK/HCLK in SerDes top bridge.
+	 * Strictly enables ACLK_EN, HCLK_EN, and USB2P0_PHY_RSTN via read-modify-write
+	 * matching vendor combo_usb2_clk_set / combo_usb_clk_set without touching Bit 21.
 	 */
 	subsys_bgr = ioremap(SERDES_TOP_SUBSYS_BGR, 4);
 	if (subsys_bgr) {
 		val = readl(subsys_bgr);
 		val |= BIT(17) | BIT(16) | BIT(4); /* ACLK_EN, HCLK_EN, USB2P0_PHY_RSTN */
-		val &= ~BIT(21); /* Clear ONLY_UTMI_CLK_SEL */
 		writel(val, subsys_bgr);
 		iounmap(subsys_bgr);
 	}
