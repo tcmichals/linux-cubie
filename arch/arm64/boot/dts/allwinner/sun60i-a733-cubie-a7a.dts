@@ -74,13 +74,9 @@
 		regulator-name = "usb1-vbus";
 		regulator-min-microvolt = <5000000>;
 		regulator-max-microvolt = <5000000>;
-		gpio = <&r_pio 1 5 GPIO_ACTIVE_HIGH>; /* PM5 (USB_HOST_EN) */
-		gpios = <&r_pio 1 5 GPIO_ACTIVE_HIGH>;
+		gpios = <&r_pio 1 5 GPIO_ACTIVE_HIGH>; /* PM5 (USB_HOST_EN) */
 		enable-active-high;
-		regulator-always-on;
-		regulator-boot-on;
-		startup-delay-us = <100000>;
-		off-on-delay-us = <100000>;
+		startup-delay-us = <100000>; /* 100ms startup delay for SGM2576 & FE1.1S settle */
 		status = "okay";
 	};
 
@@ -448,6 +444,7 @@
 			compatible = "allwinner,sun60i-a733-usb2-phy";
 			reg = <0x06b00000 0x800>;
 			power-domains = <&pck600 PD_USB2>;
+			vbus-supply = <&reg_usb1_vbus>;
 			aw,phy_tune_param = <0x143338d6>;
 			#phy-cells = <0>;
 			status = "okay";

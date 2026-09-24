@@ -9,11 +9,13 @@
 #include <linux/phy/phy.h>
 #include <linux/platform_device.h>
 #include <linux/pm_runtime.h>
+#include <linux/regulator/consumer.h>
 
 #define SUN60I_DEFAULT_PHY_TUNE	0x143338d6
 
 struct sun60i_usb2_phy {
 	void __iomem *base;
+	struct regulator *vbus;
 	u32 tune_param;
 };
 
@@ -82,6 +84,13 @@ static void sun60i_usb2_phy_hw_init(struct sun60i_usb2_phy *priv)
 static int sun60i_usb2_phy_init(struct phy *phy)
 {
 	struct sun60i_usb2_phy *priv = phy_get_drvdata(phy);
+	int ret;
+
+	if (priv->vbus) {
+		ret = regulator_enable(priv->vbus);
+		if (ret)
+			return ret;
+	}
 
 	sun60i_usb2_phy_hw_init(priv);
 	return 0;
@@ -96,6 +105,9 @@ static int sun60i_usb2_phy_exit(struct phy *phy)
 	val &= ~(BIT(10) | BIT(5));
 	val |= BIT(3); /* Assert SIDDQ */
 	writel(val, priv->base + PHY_USB2_PHYCTL);
+
+	if (priv->vbus)
+		regulator_disable(priv->vbus);
 
 	return 0;
 }
@@ -120,6 +132,13 @@ static int sun60i_usb2_phy_probe(struct platform_device *pdev)
 	priv->base = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(priv->base))
 		return PTR_ERR(priv->base);
+
+	priv->vbus = devm_regulator_get_optional(dev, "vbus");
+	if (IS_ERR(priv->vbus)) {
+		if (PTR_ERR(priv->vbus) == -EPROBE_DEFER)
+			return -EPROBE_DEFER;
+		priv->vbus = NULL;
+	}
 
 	if (of_property_read_u32(dev->of_node, "aw,phy_tune_param", &priv->tune_param))
 		priv->tune_param = SUN60I_DEFAULT_PHY_TUNE;
