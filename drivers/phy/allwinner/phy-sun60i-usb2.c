@@ -25,21 +25,30 @@ struct sun60i_usb2_phy {
 static void sun60i_usb2_phy_hw_init(struct sun60i_usb2_phy *priv)
 {
 	void __iomem *subsys_bgr;
+	u32 val;
 
-	/* Deassert PHY reset, enable ACLK/HCLK and select UTMI clock in SerDes top bridge (0x00230010) */
+	/*
+	 * Deassert PHY reset and enable ACLK/HCLK in SerDes top bridge (0x00030010).
+	 * Bit 21 (USB3P1_ONLY_UTMI_CLK_SEL) must remain 0 to preserve UTMI 60MHz PLL.
+	 */
 	subsys_bgr = ioremap(SERDES_TOP_SUBSYS_BGR, 4);
 	if (subsys_bgr) {
-		writel(0x00230010, subsys_bgr);
+		val = readl(subsys_bgr);
+		val |= BIT(17) | BIT(16) | BIT(4); /* ACLK_EN, HCLK_EN, USB2P0_PHY_RSTN */
+		val &= ~BIT(21); /* Clear ONLY_UTMI_CLK_SEL */
+		writel(val, subsys_bgr);
 		iounmap(subsys_bgr);
 	}
 
 	/* Configure 200-ohm resistor calibration in SYSCFG (0x03000000) */
 	{
 		void __iomem *syscfg = ioremap(0x03000160, 0x10);
-		if (syscfg) {
-			u32 val;
 
-			/* RESCAL_CTRL (0x160): select PCIE_USB 200 ohm trim (bit 10), clear CAL_EN (bit 0) */
+		if (syscfg) {
+			/*
+			 * RESCAL_CTRL (0x160): select PCIE_USB 200 ohm trim
+			 * (bit 10), clear CAL_EN (bit 0).
+			 */
 			val = readl(syscfg + 0x00);
 			val &= ~BIT(0);
 			val |= BIT(10);
@@ -57,8 +66,14 @@ static void sun60i_usb2_phy_hw_init(struct sun60i_usb2_phy *priv)
 	/* Force ID low and VBUS valid in ISCR to guarantee host mode */
 	writel(0x0000b000, priv->base + PHY_USB2_ISCR);
 
-	/* Clear SIDDQ (bit 3) and set COMMONONN (bit 2) in PHYCTL to wake up the USB 2.0 PHY transceiver */
-	writel(0x000e2434, priv->base + PHY_USB2_PHYCTL);
+	/*
+	 * Clear SIDDQ (bit 3) and set OTGDISABLE (bit 10) | VBUSVLDEXT (bit 5) in PHYCTL
+	 * using read-modify-write to preserve factory analog calibration trim.
+	 */
+	val = readl(priv->base + PHY_USB2_PHYCTL);
+	val |= BIT(10) | BIT(5);
+	val &= ~BIT(3);
+	writel(val, priv->base + PHY_USB2_PHYCTL);
 
 	/* Apply analog tuning (squelch threshold, pre-emphasis, DCAP) */
 	writel(priv->tune_param, priv->base + PHY_USB2_PHYTUNE);
@@ -72,8 +87,22 @@ static int sun60i_usb2_phy_init(struct phy *phy)
 	return 0;
 }
 
+static int sun60i_usb2_phy_exit(struct phy *phy)
+{
+	struct sun60i_usb2_phy *priv = phy_get_drvdata(phy);
+	u32 val;
+
+	val = readl(priv->base + PHY_USB2_PHYCTL);
+	val &= ~(BIT(10) | BIT(5));
+	val |= BIT(3); /* Assert SIDDQ */
+	writel(val, priv->base + PHY_USB2_PHYCTL);
+
+	return 0;
+}
+
 static const struct phy_ops sun60i_usb2_phy_ops = {
 	.init		= sun60i_usb2_phy_init,
+	.exit		= sun60i_usb2_phy_exit,
 	.owner		= THIS_MODULE,
 };
 
