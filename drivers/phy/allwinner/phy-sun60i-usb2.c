@@ -3,7 +3,6 @@
  * Allwinner A733 (sun60iw2) USB 2.0 PHY driver for DWC3
  */
 
-#include <linux/delay.h>
 #include <linux/io.h>
 #include <linux/module.h>
 #include <linux/of.h>
@@ -90,9 +89,10 @@ static int sun60i_usb2_phy_init(struct phy *phy)
 	if (priv->vbus) {
 		/*
 		 * If U-Boot or prior boot stage left PM5 (VBUS) high,
-		 * explicitly cycle the regulator low and wait 200ms to allow
-		 * the 20uF capacitor bank (C151 + C153) to bleed off below
-		 * the FE1.1S brown-out reset threshold, forcing a clean POR.
+		 * cycle the regulator off to force a clean Power-On Reset.
+		 * The Linux regulator core automatically enforces off-on-delay-us
+		 * (200ms) to bleed the 20uF capacitor bank before asserting PM5,
+		 * and startup-delay-us (100ms) for the crystal to settle.
 		 */
 		ret = regulator_enable(priv->vbus);
 		if (ret)
@@ -101,8 +101,6 @@ static int sun60i_usb2_phy_init(struct phy *phy)
 		ret = regulator_disable(priv->vbus);
 		if (ret)
 			return ret;
-
-		msleep(200);
 
 		ret = regulator_enable(priv->vbus);
 		if (ret)
