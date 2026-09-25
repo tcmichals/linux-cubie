@@ -156,6 +156,9 @@ static int sun60i_usb2_phy_probe(struct platform_device *pdev)
 		return PTR_ERR(provider);
 	}
 
+	/* Initialize hardware registers and ungate SerDes bus bridge for DWC3 GSNPSID */
+	sun60i_usb2_phy_hw_init(priv);
+
 	dev_info(dev, "Allwinner A733 USB 2.0 PHY probed at %pr (tune=0x%08x)\n",
 		 platform_get_resource(pdev, IORESOURCE_MEM, 0), priv->tune_param);
 
