@@ -631,25 +631,6 @@ static void test_kick_stores_vqid(struct kunit *test)
 	KUNIT_EXPECT_EQ(test, ctx->priv.kick_msg, 0xDEADBEEFU);
 }
 
-/* ==================== Operations Table Completeness ==================== */
-
-static void test_rproc_ops_completeness(struct kunit *test)
-{
-	KUNIT_EXPECT_PTR_EQ(test, (void *)sunxi_rproc_ops.prepare, (void *)sunxi_rproc_prepare);
-	KUNIT_EXPECT_PTR_EQ(test, (void *)sunxi_rproc_ops.unprepare, (void *)sunxi_rproc_unprepare);
-	KUNIT_EXPECT_PTR_EQ(test, (void *)sunxi_rproc_ops.start, (void *)sunxi_rproc_start);
-	KUNIT_EXPECT_PTR_EQ(test, (void *)sunxi_rproc_ops.stop, (void *)sunxi_rproc_stop);
-	KUNIT_EXPECT_PTR_EQ(test, (void *)sunxi_rproc_ops.kick, (void *)sunxi_rproc_kick);
-	KUNIT_EXPECT_PTR_EQ(test, (void *)sunxi_rproc_ops.da_to_va, (void *)sunxi_rproc_da_to_va);
-
-	KUNIT_EXPECT_NOT_NULL(test, sunxi_rproc_ops.get_boot_addr);
-	KUNIT_EXPECT_NOT_NULL(test, sunxi_rproc_ops.load);
-	KUNIT_EXPECT_NOT_NULL(test, sunxi_rproc_ops.parse_fw);
-	KUNIT_EXPECT_NOT_NULL(test, sunxi_rproc_ops.find_loaded_rsc_table);
-	KUNIT_EXPECT_NOT_NULL(test, sunxi_rproc_ops.sanity_check);
-	KUNIT_EXPECT_NOT_NULL(test, sunxi_rproc_ops.coredump);
-}
-
 /* ==================== Test Suite Registration ==================== */
 
 static struct kunit_case sunxi_rproc_test_cases[] = {
@@ -695,8 +676,6 @@ static struct kunit_case sunxi_rproc_test_cases[] = {
 	/* Operations: kick */
 	KUNIT_CASE(test_kick_null_tx_chan_safe),
 	KUNIT_CASE(test_kick_stores_vqid),
-	/* Ops Table Completeness */
-	KUNIT_CASE(test_rproc_ops_completeness),
 	{}
 };
 

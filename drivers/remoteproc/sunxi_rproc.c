@@ -277,13 +277,15 @@ int sunxi_rproc_start(struct rproc *rproc)
 	}
 
 	/*
-	 * Deassert reset before writing the boot vector register.
-	 *
-	 * On a recovery path, stop() re-asserts rst_core/rst_cfg without
-	 * calling unprepare(). Writing STA_ADD_REG while the CFG block AXI
-	 * bus is held in reset causes a synchronous external abort on ARM64.
-	 * Deassert first, then program the boot address.
+	 * Program boot vector while the core execution reset is held.
+	 * The CFG block bus was un-gated during prepare() via rst_cfg.
 	 */
+	if (priv->cfg_va) {
+		writel((u32)rproc->bootaddr, priv->cfg_va + cfg->boot_reg_offset);
+		dev_dbg(priv->dev, "STA_ADD set to 0x%08x\n", (u32)rproc->bootaddr);
+	}
+
+	/* Release core execution reset so the core begins execution at bootaddr */
 	if (priv->rst_core) {
 		ret = reset_control_deassert(priv->rst_core);
 		if (ret) {
@@ -296,12 +298,6 @@ int sunxi_rproc_start(struct rproc *rproc)
 			dev_err(priv->dev, "failed to release cfg reset: %d\n", ret);
 			return ret;
 		}
-	}
-
-	/* Program boot vector now that the CFG block bus is live */
-	if (priv->cfg_va) {
-		writel((u32)rproc->bootaddr, priv->cfg_va + cfg->boot_reg_offset);
-		dev_dbg(priv->dev, "STA_ADD set to 0x%08x\n", (u32)rproc->bootaddr);
 	}
 
 	return 0;
@@ -550,7 +546,7 @@ static int sunxi_rproc_register_mem(struct platform_device *pdev, struct rproc *
 		res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "sram-for-cpux");
 	if (res) {
 		priv->remap_phys = res->start;
-		if (resource_size(res) > SUNXI_REMAP_CTRL_OFFSET && (res->start & 0xfff) == 0) {
+		if (resource_size(res) > SUNXI_REMAP_CTRL_OFFSET && IS_ALIGNED(res->start, PAGE_SIZE)) {
 			void __iomem *base = devm_ioremap(dev, res->start, resource_size(res));
 
 			if (base)
@@ -701,6 +697,12 @@ static int sunxi_rproc_probe(struct platform_device *pdev)
 	if (!rproc) {
 		dev_err(dev, "failed to allocate rproc context\n");
 		return -ENOMEM;
+	}
+
+	ret = dma_set_coherent_mask(dev, DMA_BIT_MASK(32));
+	if (ret) {
+		dev_err(dev, "failed to set 32-bit DMA coherent mask: %d\n", ret);
+		return ret;
 	}
 
 	priv = rproc->priv;
@@ -877,12 +879,17 @@ static void sunxi_rproc_remove(struct platform_device *pdev)
 	}
 
 	rproc_del(rproc);
-	cancel_work_sync(&priv->vq_work);
 
-	if (priv->rx_chan)
+	if (priv->rx_chan) {
 		mbox_free_channel(priv->rx_chan);
-	if (priv->tx_chan)
+		priv->rx_chan = NULL;
+	}
+	if (priv->tx_chan) {
 		mbox_free_channel(priv->tx_chan);
+		priv->tx_chan = NULL;
+	}
+
+	cancel_work_sync(&priv->vq_work);
 
 	if (priv->has_reserved_mem)
 		of_reserved_mem_device_release(&pdev->dev);

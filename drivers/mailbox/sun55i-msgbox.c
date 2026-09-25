@@ -122,7 +122,10 @@ static int sun55i_msgbox_send_data(struct mbox_chan *chan, void *data)
 	struct sun55i_msgbox *mbox = to_sun55i_msgbox(chan);
 	int n = chan - mbox->controller.chans;
 	int local_n, p, remote_id, remote_n;
-	u32 msg = data ? *(u32 *)data : 0;
+	u32 msg = 0;
+
+	if (data)
+		memcpy(&msg, data, sizeof(msg));
 
 	sun55i_chan_to_route(n, &local_n, &p, &remote_id, &remote_n);
 
@@ -275,7 +278,7 @@ static int sun55i_msgbox_probe(struct platform_device *pdev)
 	/* Disable all read IRQs and clear status */
 	for (local_n = 0; local_n < SUN55I_NUM_ROUTES; local_n++) {
 		writel(0, mbox->regs[0] + SUNXI_MSGBOX_READ_IRQ_ENABLE(local_n));
-		writel(0xffffffff, mbox->regs[0] + SUNXI_MSGBOX_READ_IRQ_STATUS(local_n));
+		writel(U32_MAX, mbox->regs[0] + SUNXI_MSGBOX_READ_IRQ_STATUS(local_n));
 	}
 
 	irq_cnt = platform_irq_count(pdev);
@@ -292,15 +295,15 @@ static int sun55i_msgbox_probe(struct platform_device *pdev)
 			goto err_free_irqs;
 		}
 
-		ret = devm_request_irq(dev, irq, sun55i_msgbox_irq,
-				       IRQF_SHARED, dev_name(dev), mbox);
+		ret = request_irq(irq, sun55i_msgbox_irq,
+				  IRQF_SHARED, dev_name(dev), mbox);
 		if (ret) {
 			dev_err(dev, "failed to request irq %d: %d\n", irq, ret);
 			goto err_free_irqs;
 		}
 		mbox->irqs[i] = irq;
+		mbox->num_irqs = i + 1;
 	}
-	mbox->num_irqs = irq_cnt;
 
 	mbox->controller.dev           = dev;
 	mbox->controller.ops           = &sun55i_msgbox_chan_ops;
@@ -321,9 +324,11 @@ static int sun55i_msgbox_probe(struct platform_device *pdev)
 	return 0;
 
 err_free_irqs:
-	/* Mask all hardware read IRQs before unwinding reset/clock */
+	/* Mask all hardware read IRQs and free registered IRQs before cutting clocks */
 	for (local_n = 0; local_n < SUN55I_NUM_ROUTES; local_n++)
 		writel(0, mbox->regs[0] + SUNXI_MSGBOX_READ_IRQ_ENABLE(local_n));
+	for (i = 0; i < mbox->num_irqs; i++)
+		free_irq(mbox->irqs[i], mbox);
 err_assert_reset:
 	reset_control_assert(mbox->reset);
 err_disable_clk:
@@ -338,12 +343,12 @@ static void sun55i_msgbox_remove(struct platform_device *pdev)
 
 	mbox_controller_unregister(&mbox->controller);
 
-	/* Mask hardware interrupts before asserting reset and disabling clock */
+	/* Mask hardware interrupts and free IRQs before asserting reset and disabling clock */
 	for (local_n = 0; local_n < SUN55I_NUM_ROUTES; local_n++)
 		writel(0, mbox->regs[0] + SUNXI_MSGBOX_READ_IRQ_ENABLE(local_n));
 
 	for (i = 0; i < mbox->num_irqs; i++)
-		synchronize_irq(mbox->irqs[i]);
+		free_irq(mbox->irqs[i], mbox);
 
 	reset_control_assert(mbox->reset);
 	clk_disable_unprepare(mbox->clk);
