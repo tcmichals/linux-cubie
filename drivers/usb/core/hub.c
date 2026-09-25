@@ -5057,8 +5057,10 @@ hub_port_init(struct usb_hub *hub, struct usb_device *udev, int port1,
 			if (retval < 0)		/* error or disconnect */
 				goto fail;
 			if (oldspeed != udev->speed) {
-				dev_dbg(&udev->dev,
-					"device reset changed speed!\n");
+				dev_info(&udev->dev,
+					"device reset changed speed from %s to %s!\n",
+					usb_speed_string(oldspeed),
+					usb_speed_string(udev->speed));
 				retval = -ENODEV;
 				goto fail;
 			}
