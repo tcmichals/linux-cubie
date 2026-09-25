@@ -118,7 +118,7 @@ MODULE_PARM_DESC(initial_descriptor_timeout,
  * otherwise the new scheme is used.  If that fails and "use_both_schemes"
  * is set, then the driver will make another attempt, using the other scheme.
  */
-static bool old_scheme_first;
+static bool old_scheme_first = true;
 module_param(old_scheme_first, bool, S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(old_scheme_first,
 		 "start with the old device initialization scheme");
@@ -5057,10 +5057,8 @@ hub_port_init(struct usb_hub *hub, struct usb_device *udev, int port1,
 			if (retval < 0)		/* error or disconnect */
 				goto fail;
 			if (oldspeed != udev->speed) {
-				dev_info(&udev->dev,
-					"device reset changed speed from %s to %s!\n",
-					usb_speed_string(oldspeed),
-					usb_speed_string(udev->speed));
+				dev_dbg(&udev->dev,
+					"device reset changed speed!\n");
 				retval = -ENODEV;
 				goto fail;
 			}

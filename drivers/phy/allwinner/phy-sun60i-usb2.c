@@ -11,7 +11,7 @@
 #include <linux/pm_runtime.h>
 #include <linux/regulator/consumer.h>
 
-#define SUN60I_DEFAULT_PHY_TUNE	0x143338d6
+#define SUN60I_DEFAULT_PHY_TUNE	0x143333d4
 
 struct sun60i_usb2_phy {
 	void __iomem *base;
@@ -19,6 +19,7 @@ struct sun60i_usb2_phy {
 	u32 tune_param;
 };
 
+#define PHY_USB2_ISCR		0x00
 #define PHY_USB2_PHYCTL		0x10
 #define PHY_USB2_PHYTUNE	0x18
 #define SERDES_TOP_SUBSYS_BGR	0x06c00008
@@ -64,6 +65,9 @@ static void sun60i_usb2_phy_hw_init(struct sun60i_usb2_phy *priv)
 		}
 	}
 
+	/* Force ID low and VBUS valid in ISCR to guarantee host mode */
+	writel(0x0000b000, priv->base + PHY_USB2_ISCR);
+
 	/*
 	 * Clear SIDDQ (bit 3) and set OTGDISABLE (bit 10) | VBUSVLDEXT (bit 5) in PHYCTL
 	 * using read-modify-write to preserve factory analog calibration trim.
@@ -83,6 +87,21 @@ static int sun60i_usb2_phy_init(struct phy *phy)
 	int ret;
 
 	if (priv->vbus) {
+		/*
+		 * If U-Boot or prior boot stage left PM5 (VBUS) high,
+		 * cycle the regulator off to force a clean Power-On Reset.
+		 * The Linux regulator core automatically enforces off-on-delay-us
+		 * (200ms) to bleed the 20uF capacitor bank before asserting PM5,
+		 * and startup-delay-us (100ms) for the crystal to settle.
+		 */
+		ret = regulator_enable(priv->vbus);
+		if (ret)
+			return ret;
+
+		ret = regulator_disable(priv->vbus);
+		if (ret)
+			return ret;
+
 		ret = regulator_enable(priv->vbus);
 		if (ret)
 			return ret;

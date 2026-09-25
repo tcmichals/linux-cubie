@@ -27,7 +27,7 @@
 	};
 
 	chosen {
-		bootargs = "earlycon=uart8250,mmio32,0x02500000 console=ttyS0,115200 root=/dev/mmcblk0p2 rootwait rw panic=10 loglevel=8";
+		bootargs = "earlycon=uart8250,mmio32,0x02500000 console=ttyS0,115200 root=/dev/mmcblk0p2 rootwait rw panic=10 loglevel=8 usbcore.old_scheme_first=1";
 		stdout-path = "serial0:115200n8";
 	};
 
@@ -392,7 +392,7 @@
 			reset-names = "usb0_reset",
 				      "usb1_reset";
 			usb0_vbus-supply = <&reg_usb0_vbus>;
-			usb1_vbus-supply = <&reg_usb1_vbus>;
+			usb1_vbus-supply = <&reg_usb0_vbus>;
 			#phy-cells = <1>;
 			status = "okay";
 		};
@@ -446,7 +446,7 @@
 			reg = <0x06b00000 0x800>;
 			power-domains = <&pck600 PD_USB2>;
 			vbus-supply = <&reg_usb1_vbus>;
-			aw,phy_tune_param = <0x143338d6>;
+			aw,phy_tune_param = <0x143333d4>;
 			#phy-cells = <0>;
 			status = "okay";
 		};
@@ -473,7 +473,7 @@
 			snps,dis-u2-entry-quirk;
 			snps,dis_u3_susphy_quirk;
 			snps,dis_u2_susphy_quirk;
-			vbus-supply = <&reg_usb1_vbus>;
+			snps,usb2-lpm-disable;
 			status = "okay";
 		};
 
