@@ -212,7 +212,7 @@ static struct ccu_mux osc32k_clk = {
 	.mux	= _SUNXI_CCU_MUX(0, 1),
 	.common	= {
 		.reg		= LOSC_CTRL_REG,
-		.features	= CCU_FEATURE_KEY_FIELD,
+		.update_bits	= CCU_MUX_KEY_VALUE,
 		.hw.init	= &osc32k_init_data,
 	},
 };
@@ -250,7 +250,7 @@ static struct ccu_mux rtc_32k_clk = {
 	.mux	= _SUNXI_CCU_MUX(1, 1),
 	.common	= {
 		.reg		= LOSC_CTRL_REG,
-		.features	= CCU_FEATURE_KEY_FIELD,
+		.update_bits	= CCU_MUX_KEY_VALUE,
 		.hw.init	= &rtc_32k_init_data,
 	},
 };
