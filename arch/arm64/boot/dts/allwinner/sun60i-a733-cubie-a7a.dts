@@ -76,6 +76,8 @@
 		regulator-max-microvolt = <5000000>;
 		gpios = <&r_pio 1 5 GPIO_ACTIVE_HIGH>; /* PM5 (USB_HOST_EN) */
 		enable-active-high;
+		regulator-always-on;
+		regulator-boot-on;
 		off-on-delay-us = <200000>; /* 200ms to bleed 20uF capacitor bank */
 		startup-delay-us = <100000>; /* 100ms for FE1.1S 12MHz crystal to settle */
 		status = "okay";
@@ -473,7 +475,7 @@
 			snps,dis-u2-entry-quirk;
 			snps,dis_u3_susphy_quirk;
 			snps,dis_u2_susphy_quirk;
-			vbus-supply = <&reg_usb1_vbus>;
+			snps,parkmode_disable_hs_quirk;
 			status = "okay";
 		};
 
