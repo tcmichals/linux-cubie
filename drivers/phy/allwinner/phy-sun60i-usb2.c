@@ -3,7 +3,6 @@
  * Allwinner A733 (sun60iw2) USB 2.0 PHY driver for DWC3
  */
 
-#include <linux/delay.h>
 #include <linux/io.h>
 #include <linux/module.h>
 #include <linux/of.h>
@@ -25,67 +24,61 @@ struct sun60i_usb2_phy {
 #define PHY_USB2_PHYTUNE	0x18
 #define SERDES_TOP_SUBSYS_BGR	0x06c00008
 
-#define PHYCTL_VBUSVLDEXT	BIT(5)
-#define PHYCTL_SIDDQ		BIT(3)
-#define PHYCTL_COMMONONN	BIT(2)
-#define PHYCTL_RESET		BIT(0)
-
 static void sun60i_usb2_phy_hw_init(struct sun60i_usb2_phy *priv)
 {
 	void __iomem *subsys_bgr;
-	void __iomem *syscfg;
 	u32 val;
 
-	/* 1. SerDes Top Bridge: ACLK/HCLK clock and reset deassertion */
+	/*
+	 * Deassert PHY reset and enable ACLK/HCLK in SerDes top bridge.
+	 * Strictly enables ACLK_EN, HCLK_EN, and USB2P0_PHY_RSTN via read-modify-write
+	 * matching vendor combo_usb2_clk_set / combo_usb_clk_set without touching Bit 21.
+	 */
 	subsys_bgr = ioremap(SERDES_TOP_SUBSYS_BGR, 4);
 	if (subsys_bgr) {
 		val = readl(subsys_bgr);
 		val |= BIT(17) | BIT(16) | BIT(4); /* ACLK_EN, HCLK_EN, USB2P0_PHY_RSTN */
-		val &= ~BIT(21); /* Clear USB3P1_ONLY_UTMI_CLK_SEL: preserve 60MHz internal PLL */
 		writel(val, subsys_bgr);
 		iounmap(subsys_bgr);
 	}
 
-	/* 2. SYSCFG: Resistor Auto-Calibration (200-ohm target) */
-	syscfg = ioremap(0x03000160, 0x10);
-	if (syscfg) {
-		/* Set target trim to 0xc8 (200 ohm decimal) */
-		val = readl(syscfg + 0x08);
-		val &= ~GENMASK(15, 8);
-		val |= (0xc8 << 8);
-		writel(val, syscfg + 0x08);
+	/* Configure 200-ohm resistor calibration in SYSCFG (0x03000000) */
+	{
+		void __iomem *syscfg = ioremap(0x03000160, 0x10);
 
-		/* Enable PCIE_USB 200 ohm trim and trigger auto-calibration */
-		val = readl(syscfg + 0x00);
-		val |= BIT(10) | BIT(0);
-		writel(val, syscfg + 0x00);
-		iounmap(syscfg);
+		if (syscfg) {
+			/*
+			 * RESCAL_CTRL (0x160): select PCIE_USB 200 ohm trim
+			 * (bit 10), clear CAL_EN (bit 0).
+			 */
+			val = readl(syscfg + 0x00);
+			val &= ~BIT(0);
+			val |= BIT(10);
+			writel(val, syscfg + 0x00);
+
+			/* RES1_CTRL (0x168): clear manual trim bits [15:8] for auto-calibration */
+			val = readl(syscfg + 0x08);
+			val &= ~GENMASK(15, 8);
+			writel(val, syscfg + 0x08);
+
+			iounmap(syscfg);
+		}
 	}
 
-	/* Wait for analog bias and calibration currents to stabilize */
-	usleep_range(200, 500);
-
-	/* 3. ISCR: Force VBUS valid and ID low to lock Host mode */
+	/* Force ID low and VBUS valid in ISCR to guarantee host mode */
 	writel(0x0000b000, priv->base + PHY_USB2_ISCR);
 
-	/* 4. Apply Analog Tuning Parameters before releasing reset */
-	writel(priv->tune_param, priv->base + PHY_USB2_PHYTUNE);
-
-	/* 5. PHYCTL: Assert analog macro reset, power on transceiver, clear SIDDQ */
+	/*
+	 * Clear SIDDQ (bit 3) and set OTGDISABLE (bit 10) | VBUSVLDEXT (bit 5) in PHYCTL
+	 * using read-modify-write to preserve factory analog calibration trim.
+	 */
 	val = readl(priv->base + PHY_USB2_PHYCTL);
-	val |= 0x000e2434;
-	val &= ~PHYCTL_SIDDQ;
-	val |= PHYCTL_RESET;
+	val |= BIT(10) | BIT(5);
+	val &= ~BIT(3);
 	writel(val, priv->base + PHY_USB2_PHYCTL);
 
-	udelay(20);
-
-	/* Deassert macro reset */
-	val &= ~PHYCTL_RESET;
-	writel(val, priv->base + PHY_USB2_PHYCTL);
-
-	/* Allow 60 MHz UTMI clock and PLL lock */
-	usleep_range(1500, 2000);
+	/* Apply analog tuning (squelch threshold, pre-emphasis, DCAP) */
+	writel(priv->tune_param, priv->base + PHY_USB2_PHYTUNE);
 }
 
 static int sun60i_usb2_phy_init(struct phy *phy)
@@ -94,11 +87,24 @@ static int sun60i_usb2_phy_init(struct phy *phy)
 	int ret;
 
 	if (priv->vbus) {
+		/*
+		 * If U-Boot or prior boot stage left PM5 (VBUS) high,
+		 * cycle the regulator off to force a clean Power-On Reset.
+		 * The Linux regulator core automatically enforces off-on-delay-us
+		 * (200ms) to bleed the 20uF capacitor bank before asserting PM5,
+		 * and startup-delay-us (100ms) for the crystal to settle.
+		 */
 		ret = regulator_enable(priv->vbus);
 		if (ret)
 			return ret;
-		/* Let 20uF downstream rail charge and FE1.1S RC delay clear */
-		msleep(50);
+
+		ret = regulator_disable(priv->vbus);
+		if (ret)
+			return ret;
+
+		ret = regulator_enable(priv->vbus);
+		if (ret)
+			return ret;
 	}
 
 	sun60i_usb2_phy_hw_init(priv);
@@ -112,7 +118,7 @@ static int sun60i_usb2_phy_exit(struct phy *phy)
 
 	val = readl(priv->base + PHY_USB2_PHYCTL);
 	val &= ~(BIT(10) | BIT(5));
-	val |= PHYCTL_SIDDQ;
+	val |= BIT(3); /* Assert SIDDQ */
 	writel(val, priv->base + PHY_USB2_PHYCTL);
 
 	if (priv->vbus)
@@ -168,10 +174,10 @@ static int sun60i_usb2_phy_probe(struct platform_device *pdev)
 		return PTR_ERR(provider);
 	}
 
-	/* Initialize hardware registers and ungate SerDes bus bridge */
+	/* Initialize hardware registers */
 	sun60i_usb2_phy_hw_init(priv);
 
-	dev_info(dev, "Allwinner A733 USB 2.0 PHY registered at %pr (tune=0x%08x)\n",
+	dev_info(dev, "Allwinner A733 USB 2.0 PHY initialized at %pr (tune=0x%08x)\n",
 		 platform_get_resource(pdev, IORESOURCE_MEM, 0), priv->tune_param);
 
 	return 0;
