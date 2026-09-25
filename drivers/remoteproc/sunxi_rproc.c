@@ -546,7 +546,8 @@ static int sunxi_rproc_register_mem(struct platform_device *pdev, struct rproc *
 		res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "sram-for-cpux");
 	if (res) {
 		priv->remap_phys = res->start;
-		if (resource_size(res) > SUNXI_REMAP_CTRL_OFFSET && IS_ALIGNED(res->start, PAGE_SIZE)) {
+		if (resource_size(res) > SUNXI_REMAP_CTRL_OFFSET &&
+		    IS_ALIGNED(res->start, PAGE_SIZE)) {
 			void __iomem *base = devm_ioremap(dev, res->start, resource_size(res));
 
 			if (base)
