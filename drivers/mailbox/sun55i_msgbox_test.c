@@ -224,6 +224,7 @@ struct mock_rx_sink {
 	int count;
 	u32 last_msg;
 	u32 msgs[SUN55I_FIFO_MAX * 2];
+	u32 *status_reg;
 };
 
 struct mock_msgbox_fixture {
@@ -241,6 +242,13 @@ static void mock_rx_cb(struct mbox_client *cl, void *data)
 		sink->msgs[sink->count] = *(u32 *)data;
 	sink->count++;
 	sink->last_msg = *(u32 *)data;
+
+	/*
+	 * Emulate hardware FIFO pop behavior: reading a word from the
+	 * message FIFO decrements MSG_STATUS in real hardware.
+	 */
+	if (sink->status_reg && (*sink->status_reg & MSG_NUM_MASK) > 0)
+		(*sink->status_reg)--;
 }
 
 static struct mock_msgbox_fixture *create_mock_fixture(struct kunit *test)
@@ -259,8 +267,12 @@ static struct mock_msgbox_fixture *create_mock_fixture(struct kunit *test)
 		fix->mbox.regs[i] = (void __iomem *)fix->regs[i];
 
 	for (i = 0; i < SUN55I_NUM_CHANS; i++) {
+		int local_n, p, remote_id, remote_n;
+
+		sun55i_chan_to_route(i, &local_n, &p, &remote_id, &remote_n);
 		fix->chans[i].con_priv = &fix->mbox;
 		fix->sinks[i].client.rx_callback = mock_rx_cb;
+		fix->sinks[i].status_reg = &fix->regs[0][SUNXI_MSGBOX_MSG_STATUS(local_n, p) / 4];
 		fix->chans[i].cl = &fix->sinks[i].client;
 	}
 

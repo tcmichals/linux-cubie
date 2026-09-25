@@ -53,6 +53,10 @@ struct test_context {
 	u8 mock_sram1_buf[1024];
 };
 
+static void mock_vq_work(struct work_struct *work)
+{
+}
+
 static struct test_context *create_test_ctx(struct kunit *test)
 {
 	struct test_context *ctx;
@@ -80,7 +84,7 @@ static struct test_context *create_test_ctx(struct kunit *test)
 	ctx->priv.trace_size = A527_TRACE_SIZE;
 	ctx->priv.cfg = &sun55i_riscv_cfg;
 
-	INIT_WORK(&ctx->priv.vq_work, NULL);
+	INIT_WORK(&ctx->priv.vq_work, mock_vq_work);
 
 	return ctx;
 }
@@ -267,23 +271,23 @@ static void test_da_to_va_sram_boundaries(struct kunit *test)
 	/* 1 byte before Space 0 start -> NULL */
 	KUNIT_EXPECT_NULL(test,
 			  sunxi_rproc_da_to_va(&ctx->rproc,
-					       E907_SRAM_SPACE0_DA_ALT - 1, 1, NULL));
+					       E907_SRAM_SPACE0_DA - 1, 1, NULL));
 
 	/* Exact last byte inside Space 0 -> valid */
 	va = sunxi_rproc_da_to_va(&ctx->rproc,
 				  E907_SRAM_SPACE0_DA_ALT + A527_SRAM_SIZE - 1, 1, NULL);
 	KUNIT_ASSERT_NOT_NULL(test, va);
 
-	/* 1 byte beyond Space 0 end -> NULL */
+	/* 1 byte beyond Space 1 end -> NULL */
 	KUNIT_EXPECT_NULL(test,
 			  sunxi_rproc_da_to_va(&ctx->rproc,
-					       E907_SRAM_SPACE0_DA_ALT + A527_SRAM_SIZE, 1, NULL));
+					       E907_SRAM_SPACE1_DA_ALT + A527_SRAM1_SIZE, 1, NULL));
 
-	/* Access starting inside Space 0 but spanning past end -> NULL */
+	/* Access starting inside Space 1 but spanning past end -> NULL */
 	KUNIT_EXPECT_NULL(test,
 			  sunxi_rproc_da_to_va(&ctx->rproc,
-					       E907_SRAM_SPACE0_DA_ALT +
-					       A527_SRAM_SIZE - 4, 8, NULL));
+					       E907_SRAM_SPACE1_DA_ALT +
+					       A527_SRAM1_SIZE - 4, 8, NULL));
 }
 
 static void test_da_to_va_space1_boundaries(struct kunit *test)
@@ -473,8 +477,8 @@ static void test_da_to_va_malformed_rsc_table_entry(struct kunit *test)
 	 */
 	KUNIT_EXPECT_NULL(test, sunxi_rproc_da_to_va(&ctx->rproc, 0xDEADBEEF, 0x1000, NULL));
 
-	/* Out-of-window address between SRAM A3 and Space 1 (0x3FFD0000) */
-	KUNIT_EXPECT_NULL(test, sunxi_rproc_da_to_va(&ctx->rproc, 0x3FFD0000, 0x1000, NULL));
+	/* Out-of-window unmapped device address (0x30000000) */
+	KUNIT_EXPECT_NULL(test, sunxi_rproc_da_to_va(&ctx->rproc, 0x30000000, 0x1000, NULL));
 }
 
 static void test_da_to_va_corrupted_elf_overflow_segment(struct kunit *test)
@@ -568,6 +572,12 @@ static void test_prepare_and_unprepare_remap(struct kunit *test)
 
 	ctx->priv.remap_va = (void __iomem *)&ctx->mock_remap_reg;
 	ctx->mock_remap_reg = 0;
+
+	/* Provide real buffers for SRAM clearing to prevent faulting on fake VA */
+	ctx->priv.r_sram_va = (void __iomem *)ctx->mock_sram_buf;
+	ctx->priv.r_sram_size = sizeof(ctx->mock_sram_buf);
+	ctx->priv.r_sram1_va = (void __iomem *)ctx->mock_sram1_buf;
+	ctx->priv.r_sram1_size = sizeof(ctx->mock_sram1_buf);
 
 	/* prepare() should set SUNXI_REMAP_SRAMA3_2_BIT (bit 1) */
 	ret = sunxi_rproc_prepare(&ctx->rproc);
