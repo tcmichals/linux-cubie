@@ -39,6 +39,7 @@ static void sun60i_usb2_phy_hw_init(struct sun60i_usb2_phy *priv)
 		val = readl(subsys_bgr);
 		val |= BIT(17) | BIT(16) | BIT(4); /* ACLK_EN, HCLK_EN, USB2P0_PHY_RSTN */
 		writel(val, subsys_bgr);
+		readl(subsys_bgr);
 		iounmap(subsys_bgr);
 	}
 
@@ -55,11 +56,13 @@ static void sun60i_usb2_phy_hw_init(struct sun60i_usb2_phy *priv)
 			val &= ~BIT(0);
 			val |= BIT(10);
 			writel(val, syscfg + 0x00);
+			readl(syscfg + 0x00);
 
 			/* RES1_CTRL (0x168): clear manual trim bits [15:8] for auto-calibration */
 			val = readl(syscfg + 0x08);
 			val &= ~GENMASK(15, 8);
 			writel(val, syscfg + 0x08);
+			readl(syscfg + 0x08);
 
 			iounmap(syscfg);
 		}
@@ -67,6 +70,7 @@ static void sun60i_usb2_phy_hw_init(struct sun60i_usb2_phy *priv)
 
 	/* Force ID low and VBUS valid in ISCR to guarantee host mode */
 	writel(0x0000b000, priv->base + PHY_USB2_ISCR);
+	readl(priv->base + PHY_USB2_ISCR);
 
 	/*
 	 * Clear SIDDQ (bit 3) and set OTGDISABLE (bit 10) | VBUSVLDEXT (bit 5) in PHYCTL
@@ -76,9 +80,11 @@ static void sun60i_usb2_phy_hw_init(struct sun60i_usb2_phy *priv)
 	val |= BIT(10) | BIT(5);
 	val &= ~BIT(3);
 	writel(val, priv->base + PHY_USB2_PHYCTL);
+	readl(priv->base + PHY_USB2_PHYCTL);
 
 	/* Apply analog tuning (squelch threshold, pre-emphasis, DCAP) */
 	writel(priv->tune_param, priv->base + PHY_USB2_PHYTUNE);
+	readl(priv->base + PHY_USB2_PHYTUNE);
 }
 
 static int sun60i_usb2_phy_init(struct phy *phy)
@@ -121,6 +127,7 @@ static int sun60i_usb2_phy_exit(struct phy *phy)
 	val &= ~(BIT(10) | BIT(5));
 	val |= BIT(3); /* Assert SIDDQ */
 	writel(val, priv->base + PHY_USB2_PHYCTL);
+	readl(priv->base + PHY_USB2_PHYCTL);
 
 	if (priv->vbus)
 		regulator_disable(priv->vbus);
