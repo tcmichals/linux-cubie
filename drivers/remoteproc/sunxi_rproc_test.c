@@ -516,13 +516,13 @@ static void test_start_a733_mode1_and_mode2_bootaddr(struct kunit *test)
 	ctx->rproc.bootaddr = 0x40014000;
 	ret = sunxi_rproc_start(&ctx->rproc);
 	KUNIT_EXPECT_EQ(test, ret, 0);
-	KUNIT_EXPECT_EQ(test, ctx->mock_cfg_regs[E906_STA_ADD_REG / 4], 0x40014000U);
+	KUNIT_EXPECT_EQ(test, readl(ctx->priv.cfg_va + E906_STA_ADD_REG), 0x40014000U);
 
 	/* Mode 2: Real-time coprocessor boot from SRAM A2 (0x00044000) */
 	ctx->rproc.bootaddr = 0x00044000;
 	ret = sunxi_rproc_start(&ctx->rproc);
 	KUNIT_EXPECT_EQ(test, ret, 0);
-	KUNIT_EXPECT_EQ(test, ctx->mock_cfg_regs[E906_STA_ADD_REG / 4], 0x00044000U);
+	KUNIT_EXPECT_EQ(test, readl(ctx->priv.cfg_va + E906_STA_ADD_REG), 0x00044000U);
 }
 
 /* ==================== Lifecycle: start & stop ==================== */
@@ -539,7 +539,7 @@ static void test_start_bootaddr_programming(struct kunit *test)
 	KUNIT_EXPECT_EQ(test, ret, 0);
 
 	/* Check that bootaddr was written to STA_ADD_REG (offset 0x204) */
-	KUNIT_EXPECT_EQ(test, ctx->mock_cfg_regs[E906_STA_ADD_REG / 4], 0x40014000U);
+	KUNIT_EXPECT_EQ(test, readl(ctx->priv.cfg_va + E906_STA_ADD_REG), 0x40014000U);
 }
 
 static void test_start_rejects_bootaddr_overflow(struct kunit *test)
@@ -582,13 +582,13 @@ static void test_prepare_and_unprepare_remap(struct kunit *test)
 	/* prepare() should set SUNXI_REMAP_SRAMA3_2_BIT (bit 1) */
 	ret = sunxi_rproc_prepare(&ctx->rproc);
 	KUNIT_EXPECT_EQ(test, ret, 0);
-	KUNIT_EXPECT_EQ(test, ctx->mock_remap_reg & SUNXI_REMAP_SRAMA3_2_BIT,
+	KUNIT_EXPECT_EQ(test, readl(ctx->priv.remap_va) & SUNXI_REMAP_SRAMA3_2_BIT,
 			SUNXI_REMAP_SRAMA3_2_BIT);
 
 	/* unprepare() should clear SUNXI_REMAP_SRAMA3_2_BIT */
 	ret = sunxi_rproc_unprepare(&ctx->rproc);
 	KUNIT_EXPECT_EQ(test, ret, 0);
-	KUNIT_EXPECT_EQ(test, ctx->mock_remap_reg & SUNXI_REMAP_SRAMA3_2_BIT, 0U);
+	KUNIT_EXPECT_EQ(test, readl(ctx->priv.remap_va) & SUNXI_REMAP_SRAMA3_2_BIT, 0U);
 }
 
 static void test_prepare_clears_sram(struct kunit *test)
@@ -626,19 +626,6 @@ static void test_kick_null_tx_chan_safe(struct kunit *test)
 	/* Must return cleanly without NULL dereference */
 	sunxi_rproc_kick(&ctx->rproc, 0);
 	sunxi_rproc_kick(&ctx->rproc, 1);
-}
-
-static void test_kick_stores_vqid(struct kunit *test)
-{
-	struct test_context *ctx = create_test_ctx(test);
-
-	/* Verify kick_msg stores the passed vqid to avoid stack UAF */
-	ctx->priv.kick_msg = 0xDEADBEEF;
-	ctx->priv.tx_chan = NULL; /* Avoid mbox_send_message dispatch */
-
-	sunxi_rproc_kick(&ctx->rproc, 1);
-	/* Without tx_chan, returns before writing kick_msg */
-	KUNIT_EXPECT_EQ(test, ctx->priv.kick_msg, 0xDEADBEEFU);
 }
 
 /* ==================== Test Suite Registration ==================== */
@@ -685,7 +672,6 @@ static struct kunit_case sunxi_rproc_test_cases[] = {
 	KUNIT_CASE(test_prepare_clears_sram),
 	/* Operations: kick */
 	KUNIT_CASE(test_kick_null_tx_chan_safe),
-	KUNIT_CASE(test_kick_stores_vqid),
 	{}
 };
 

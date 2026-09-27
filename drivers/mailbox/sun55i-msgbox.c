@@ -67,7 +67,16 @@ irqreturn_t sun55i_msgbox_irq(int irq, void *dev_id)
 {
 	struct sun55i_msgbox *mbox = dev_id;
 	irqreturn_t ret = IRQ_NONE;
+	unsigned long flags;
 	int i, local_n, p, chan_idx;
+
+	/*
+	 * Guard against concurrent multi-IRQ execution across CPUs.
+	 * If multiple cores interrupt simultaneously, holding mbox->lock prevents
+	 * a TOCTOU race where multiple CPUs attempt to drain the same FIFO,
+	 * causing hardware underflow.
+	 */
+	spin_lock_irqsave(&mbox->lock, flags);
 
 	for (local_n = 0; local_n < SUN55I_NUM_ROUTES; local_n++) {
 		void __iomem *local_base = mbox->regs[0];
@@ -109,6 +118,8 @@ irqreturn_t sun55i_msgbox_irq(int irq, void *dev_id)
 			ret = IRQ_HANDLED;
 		}
 	}
+
+	spin_unlock_irqrestore(&mbox->lock, flags);
 
 	return ret;
 }
@@ -201,7 +212,7 @@ static bool sun55i_msgbox_last_tx_done(struct mbox_chan *chan)
 	sun55i_chan_to_route(n, &local_n, &p, &remote_id, &remote_n);
 
 	count = readl(mbox->regs[remote_id] + SUNXI_MSGBOX_MSG_STATUS(remote_n, p)) & MSG_NUM_MASK;
-	return count < SUN55I_FIFO_MAX;
+	return count == 0;
 }
 
 static bool sun55i_msgbox_peek_data(struct mbox_chan *chan)
@@ -287,6 +298,13 @@ static int sun55i_msgbox_probe(struct platform_device *pdev)
 		goto err_assert_reset;
 	}
 
+	if (irq_cnt > SUN55I_MAX_PROCESSORS) {
+		dev_err(dev, "too many interrupts defined (%d > %d)\n",
+			irq_cnt, SUN55I_MAX_PROCESSORS);
+		ret = -EINVAL;
+		goto err_assert_reset;
+	}
+
 	for (i = 0; i < irq_cnt; i++) {
 		int irq = platform_get_irq(pdev, i);
 
@@ -341,11 +359,18 @@ static void sun55i_msgbox_remove(struct platform_device *pdev)
 	struct sun55i_msgbox *mbox = platform_get_drvdata(pdev);
 	int local_n, i;
 
-	mbox_controller_unregister(&mbox->controller);
-
-	/* Mask hardware interrupts and free IRQs before asserting reset and disabling clock */
+	/*
+	 * Mask hardware interrupts and synchronize kernel IRQ subsystem
+	 * BEFORE unregistering controller, preventing concurrent ISR execution
+	 * from dereferencing chan->cl during shutdown.
+	 */
 	for (local_n = 0; local_n < SUN55I_NUM_ROUTES; local_n++)
 		writel(0, mbox->regs[0] + SUNXI_MSGBOX_READ_IRQ_ENABLE(local_n));
+
+	for (i = 0; i < mbox->num_irqs; i++)
+		synchronize_irq(mbox->irqs[i]);
+
+	mbox_controller_unregister(&mbox->controller);
 
 	for (i = 0; i < mbox->num_irqs; i++)
 		free_irq(mbox->irqs[i], mbox);

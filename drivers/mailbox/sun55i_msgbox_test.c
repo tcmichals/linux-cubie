@@ -331,14 +331,12 @@ static void test_functional_last_tx_done_sweep(struct kunit *test)
 	u32 reg_idx = SUNXI_MSGBOX_MSG_STATUS(2, 0) / 4;
 	u32 count;
 
-	/* Counts 0..7: FIFO has space -> last_tx_done returns true */
-	for (count = 0; count < 8; count++) {
-		fix->regs[3][reg_idx] = count;
-		KUNIT_EXPECT_TRUE(test, sun55i_msgbox_chan_ops.last_tx_done(&fix->chans[8]));
-	}
+	/* Count 0: FIFO is empty (message consumed by remote) -> last_tx_done returns true */
+	fix->regs[3][reg_idx] = 0;
+	KUNIT_EXPECT_TRUE(test, sun55i_msgbox_chan_ops.last_tx_done(&fix->chans[8]));
 
-	/* Counts 8..15: FIFO is full or overflow -> last_tx_done returns false */
-	for (count = 8; count <= 15; count++) {
+	/* Counts 1..15: FIFO still has messages -> last_tx_done returns false */
+	for (count = 1; count <= 15; count++) {
 		fix->regs[3][reg_idx] = count;
 		KUNIT_EXPECT_FALSE(test, sun55i_msgbox_chan_ops.last_tx_done(&fix->chans[8]));
 	}
@@ -701,18 +699,18 @@ static void test_functional_last_tx_done_backpressure_boundary(struct kunit *tes
 	u32 reg_idx = SUNXI_MSGBOX_MSG_STATUS(2, 0) / 4;
 	bool done;
 
-	/* 7 entries in FIFO -> space available (< 8) -> returns true */
-	fix->regs[3][reg_idx] = 7;
+	/* 0 entries in FIFO -> peer has drained message -> returns true */
+	fix->regs[3][reg_idx] = 0;
 	done = sun55i_msgbox_chan_ops.last_tx_done(&fix->chans[8]);
 	KUNIT_EXPECT_TRUE(test, done);
 
-	/* 8 entries in FIFO -> full (== SUN55I_FIFO_MAX) -> backpressure active (false) */
-	fix->regs[3][reg_idx] = 8;
+	/* 1 entry in FIFO -> pending delivery to peer -> returns false */
+	fix->regs[3][reg_idx] = 1;
 	done = sun55i_msgbox_chan_ops.last_tx_done(&fix->chans[8]);
 	KUNIT_EXPECT_FALSE(test, done);
 
-	/* 15 entries in FIFO -> full -> backpressure active (false) */
-	fix->regs[3][reg_idx] = 15;
+	/* 8 entries in FIFO -> full (== SUN55I_FIFO_MAX) -> returns false */
+	fix->regs[3][reg_idx] = 8;
 	done = sun55i_msgbox_chan_ops.last_tx_done(&fix->chans[8]);
 	KUNIT_EXPECT_FALSE(test, done);
 }

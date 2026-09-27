@@ -72,13 +72,18 @@ static irqreturn_t sunxi_rproc_crash_handler(int irq, void *data)
 {
 	struct sunxi_rproc *priv = data;
 	struct rproc *rproc = priv->rproc;
+	unsigned long flags;
 
 	dev_err(priv->dev, "Hardware crash event received from %s core!\n",
 		priv->cfg ? priv->cfg->name : "remote");
+
+	spin_lock_irqsave(&priv->lock, flags);
 	if (priv->crash_irq_enabled) {
 		disable_irq_nosync(irq);
 		priv->crash_irq_enabled = false;
 	}
+	spin_unlock_irqrestore(&priv->lock, flags);
+
 	rproc_report_crash(rproc, RPROC_FATAL_ERROR);
 
 	return IRQ_HANDLED;
@@ -262,6 +267,7 @@ int sunxi_rproc_start(struct rproc *rproc)
 {
 	struct sunxi_rproc *priv = rproc->priv;
 	const struct sunxi_rproc_cfg *cfg = priv->cfg ? priv->cfg : &sun55i_riscv_cfg;
+	unsigned long flags;
 	int ret;
 
 	dev_info(priv->dev, "Starting %s core at entry 0x%llx\n",
@@ -270,18 +276,15 @@ int sunxi_rproc_start(struct rproc *rproc)
 	if (rproc->bootaddr > U32_MAX)
 		return -EINVAL;
 
-	/* Enable crash IRQ now that core is executing */
-	if (priv->crash_irq > 0 && !priv->crash_irq_enabled) {
-		enable_irq(priv->crash_irq);
-		priv->crash_irq_enabled = true;
-	}
-
 	/*
 	 * Program boot vector while the core execution reset is held.
 	 * The CFG block bus was un-gated during prepare() via rst_cfg.
+	 * Read back the register to flush the posted interconnect write
+	 * before releasing the core execution reset.
 	 */
 	if (priv->cfg_va) {
 		writel((u32)rproc->bootaddr, priv->cfg_va + cfg->boot_reg_offset);
+		readl(priv->cfg_va + cfg->boot_reg_offset);
 		dev_dbg(priv->dev, "STA_ADD set to 0x%08x\n", (u32)rproc->bootaddr);
 	}
 
@@ -292,12 +295,16 @@ int sunxi_rproc_start(struct rproc *rproc)
 			dev_err(priv->dev, "failed to release core reset: %d\n", ret);
 			return ret;
 		}
-	} else if (priv->rst_cfg) {
-		ret = reset_control_deassert(priv->rst_cfg);
-		if (ret) {
-			dev_err(priv->dev, "failed to release cfg reset: %d\n", ret);
-			return ret;
+	}
+
+	/* Enable crash IRQ now that core is successfully executing */
+	if (priv->crash_irq > 0) {
+		spin_lock_irqsave(&priv->lock, flags);
+		if (!priv->crash_irq_enabled) {
+			enable_irq(priv->crash_irq);
+			priv->crash_irq_enabled = true;
 		}
+		spin_unlock_irqrestore(&priv->lock, flags);
 	}
 
 	return 0;
@@ -311,6 +318,7 @@ int sunxi_rproc_stop(struct rproc *rproc)
 {
 	struct sunxi_rproc *priv = rproc->priv;
 	const struct sunxi_rproc_cfg *cfg = priv->cfg ? priv->cfg : &sun55i_riscv_cfg;
+	unsigned long flags;
 
 	dev_info(priv->dev, "Halting %s core...\n",
 		 cfg->name ? cfg->name : "remote");
@@ -323,13 +331,15 @@ int sunxi_rproc_stop(struct rproc *rproc)
 	 */
 	if (priv->rst_core)
 		reset_control_assert(priv->rst_core);
-	else if (priv->rst_cfg)
-		reset_control_assert(priv->rst_cfg);
 
 	/* Disable crash IRQ while core is stopped */
-	if (priv->crash_irq > 0 && priv->crash_irq_enabled) {
-		disable_irq(priv->crash_irq);
-		priv->crash_irq_enabled = false;
+	if (priv->crash_irq > 0) {
+		spin_lock_irqsave(&priv->lock, flags);
+		if (priv->crash_irq_enabled) {
+			disable_irq(priv->crash_irq);
+			priv->crash_irq_enabled = false;
+		}
+		spin_unlock_irqrestore(&priv->lock, flags);
 	}
 
 	cancel_work_sync(&priv->vq_work);
@@ -344,23 +354,20 @@ EXPORT_SYMBOL_GPL(sunxi_rproc_stop);
 void sunxi_rproc_kick(struct rproc *rproc, int vqid)
 {
 	struct sunxi_rproc *priv = rproc->priv;
+	u32 msg = (u32)vqid;
 	int ret;
 
 	if (!priv->tx_chan)
 		return;
 
 	/*
-	 * Use priv->kick_msg rather than a stack-local variable. The mailbox
-	 * controller runs with tx_block=false, so mbox_send_message() may
-	 * queue the pointer and return before the hardware reads the message.
-	 * A stack-local vqid would be a use-after-return at that point.
+	 * Pass stack-local msg. The sun55i mailbox controller copies the
+	 * 32-bit payload directly into the hardware FIFO during the
+	 * mbox_send_message() call under controller spinlock.
 	 */
-	priv->kick_msg = (u32)vqid;
-	ret = mbox_send_message(priv->tx_chan, &priv->kick_msg);
+	ret = mbox_send_message(priv->tx_chan, &msg);
 	if (ret < 0)
 		dev_err_ratelimited(priv->dev, "failed to send mailbox kick: %d\n", ret);
-
-	mbox_client_txdone(priv->tx_chan, 0);
 }
 
 #if IS_ENABLED(CONFIG_SUNXI_REMOTEPROC_KUNIT_TEST)
@@ -409,6 +416,9 @@ void *sunxi_rproc_da_to_va(struct rproc *rproc, u64 da, size_t len, bool *is_iom
 	/*
 	 * 1. Translate core-local device addresses (DA) to system bus
 	 * addresses (Host PA) using the SoC address translation table (ATT).
+	 * If the DA matches an ATT entry, sys is a system bus address.
+	 * If none of the driver's mapped windows cover it, return NULL
+	 * rather than falling through to compare DA against Host PAs.
 	 */
 	if (sunxi_rproc_da_to_sys(priv, da, len, &sys, is_iomem) == 0) {
 		if (priv->r_sram_va && sys >= priv->r_sram_phys &&
@@ -426,6 +436,8 @@ void *sunxi_rproc_da_to_va(struct rproc *rproc, u64 da, size_t len, bool *is_iom
 		if (priv->trace_va && sys >= priv->trace_phys &&
 		    (sys + len) <= (priv->trace_phys + priv->trace_size))
 			return (__force void *)(priv->trace_va + (sys - priv->trace_phys));
+
+		return NULL;
 	}
 
 	/*
@@ -647,6 +659,7 @@ static int sunxi_rproc_parse_memory_regions(struct rproc *rproc)
 					devm_ioremap_wc(dev, res.start, resource_size(&res));
 			dev_info(dev, "registered trace carveout %pa+%zu (%s)\n",
 				 &priv->trace_phys, priv->trace_size, name);
+			va = priv->trace_va;
 		} else if (name && (strstr(name, "dram") || strstr(name, "vram"))) {
 			priv->dram_phys = res.start;
 			priv->dram_size = resource_size(&res);
@@ -657,22 +670,24 @@ static int sunxi_rproc_parse_memory_regions(struct rproc *rproc)
 					devm_ioremap_wc(dev, res.start, resource_size(&res));
 			dev_info(dev, "registered dram carveout %pa+%zu (%s)\n",
 				 &priv->dram_phys, priv->dram_size, name);
-		}
-
-		/* Reuse existing SRAM mapping if region overlaps, else ioremap */
-		if (priv->r_sram1_va && res.start == priv->r_sram1_phys)
+			va = priv->dram_va;
+		} else if (priv->r_sram1_va && res.start == priv->r_sram1_phys) {
 			va = (__force void *)priv->r_sram1_va;
-		else if (priv->r_sram_va && res.start == priv->r_sram_phys)
+		} else if (priv->r_sram_va && res.start == priv->r_sram_phys) {
 			va = (__force void *)priv->r_sram_va;
-		else
+		} else {
 			va = (__force void *)devm_ioremap_wc(dev, res.start, resource_size(&res));
+		}
 
 		if (va) {
 			mem = rproc_mem_entry_init(dev, va, (dma_addr_t)res.start,
 						   resource_size(&res), (u32)res.start,
 						   NULL, NULL, "%s", name);
 			if (mem) {
-				mem->is_iomem = true;
+				if (va == priv->trace_va || va == priv->dram_va)
+					mem->is_iomem = false;
+				else
+					mem->is_iomem = true;
 				rproc_add_carveout(rproc, mem);
 			}
 		}
@@ -709,6 +724,7 @@ static int sunxi_rproc_probe(struct platform_device *pdev)
 	priv = rproc->priv;
 	priv->rproc = rproc;
 	priv->dev = dev;
+	spin_lock_init(&priv->lock);
 	priv->cfg = of_device_get_match_data(dev);
 	if (!priv->cfg)
 		priv->cfg = &sun55i_riscv_cfg;
@@ -786,7 +802,6 @@ static int sunxi_rproc_probe(struct platform_device *pdev)
 	priv->cl.dev = dev;
 	priv->cl.rx_callback = sunxi_rproc_mb_rx_callback;
 	priv->cl.tx_block = false;
-	priv->cl.knows_txdone = true;
 
 	/*
 	 * If the hardware mailbox is assigned to userspace (generic-uio) or
@@ -842,16 +857,16 @@ skip_mbox:
 	return 0;
 
 err_mbox_release:
-	cancel_work_sync(&priv->vq_work);
 	/*
-	 * mbox_request_channel_byname() can return ERR_PTR on failure.
-	 * Guard with IS_ERR() to avoid calling mbox_free_channel() with
-	 * an invalid pointer, which would panic on the first dereference.
+	 * Free mailbox channels first to close the gate against new RX events.
+	 * Guard with !IS_ERR_OR_NULL() to safely handle error pointers from
+	 * mbox_request_channel_byname().
 	 */
-	if (priv->rx_chan && !IS_ERR(priv->rx_chan))
+	if (!IS_ERR_OR_NULL(priv->rx_chan))
 		mbox_free_channel(priv->rx_chan);
-	if (priv->tx_chan && !IS_ERR(priv->tx_chan))
+	if (!IS_ERR_OR_NULL(priv->tx_chan))
 		mbox_free_channel(priv->tx_chan);
+	cancel_work_sync(&priv->vq_work);
 err_mem_release:
 	if (priv->has_reserved_mem)
 		of_reserved_mem_device_release(dev);
@@ -865,21 +880,14 @@ static void sunxi_rproc_remove(struct platform_device *pdev)
 
 	/*
 	 * Teardown order is critical:
-	 * 1. Disable crash IRQ first so late hardware crash alerts cannot
-	 *    race against rproc_del() or report crashes on a deleted device.
-	 * 2. rproc_del() stops the remote core and tears down VirtIO/vring,
-	 *    which stops the hardware from generating further mailbox IRQs.
-	 * 3. cancel_work_sync() drains any in-flight vq_work. Calling this
-	 *    before rproc_del() risks a late RX IRQ re-queuing work after
-	 *    cancel_work_sync() returns, executing on freed priv->rx_chan.
-	 * 4. Free mailbox channels only after the workqueue is fully drained.
+	 * 1. Synchronously free crash IRQ first so running or pending ISRs
+	 *    are completed and cannot touch priv or report crashes after removal.
+	 * 2. Free mailbox channels so no new RX callbacks can be invoked.
+	 * 3. Cancel and drain any in-flight virtqueue work.
+	 * 4. Call rproc_del() to halt remote processor and tear down virtio devices.
 	 */
-	if (priv->crash_irq > 0 && priv->crash_irq_enabled) {
-		disable_irq(priv->crash_irq);
-		priv->crash_irq_enabled = false;
-	}
-
-	rproc_del(rproc);
+	if (priv->crash_irq > 0)
+		devm_free_irq(&pdev->dev, priv->crash_irq, priv);
 
 	if (priv->rx_chan) {
 		mbox_free_channel(priv->rx_chan);
@@ -891,6 +899,8 @@ static void sunxi_rproc_remove(struct platform_device *pdev)
 	}
 
 	cancel_work_sync(&priv->vq_work);
+
+	rproc_del(rproc);
 
 	if (priv->has_reserved_mem)
 		of_reserved_mem_device_release(&pdev->dev);

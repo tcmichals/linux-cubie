@@ -398,7 +398,7 @@ config SUNXI_REMOTEPROC
 
 config SUNXI_REMOTEPROC_KUNIT_TEST
 	tristate "KUnit tests for Allwinner sunxi remoteproc" if !KUNIT_ALL_TESTS
-	depends on KUNIT
+	depends on SUNXI_REMOTEPROC && KUNIT
 	default KUNIT_ALL_TESTS
 	help
 	  KUnit tests for the Allwinner sunxi_rproc driver, covering
