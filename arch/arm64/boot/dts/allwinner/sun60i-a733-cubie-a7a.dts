@@ -89,8 +89,6 @@
 		gpio = <&r_pio 1 0 GPIO_ACTIVE_HIGH>; /* PM0 (USB_WIFI_PWR) */
 		gpios = <&r_pio 1 0 GPIO_ACTIVE_HIGH>;
 		enable-active-high;
-		regulator-always-on;
-		regulator-boot-on;
 		status = "okay";
 	};
 
@@ -102,8 +100,6 @@
 		gpio = <&r_pio 1 1 GPIO_ACTIVE_HIGH>; /* PM1 (WIFI_REG_ON) */
 		gpios = <&r_pio 1 1 GPIO_ACTIVE_HIGH>;
 		enable-active-high;
-		regulator-always-on;
-		regulator-boot-on;
 		status = "okay";
 	};
 
@@ -446,7 +442,7 @@
 			reg = <0x06b00000 0x800>;
 			power-domains = <&pck600 PD_USB2>;
 			vbus-supply = <&reg_usb1_vbus>;
-			aw,phy_tune_param = <0x143338d6>;
+			aw,phy_tune_param = <0x143333d4>;
 			#phy-cells = <0>;
 			status = "okay";
 		};
