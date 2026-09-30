@@ -344,7 +344,7 @@ config SUN55I_MSGBOX
 
 config SUN55I_MSGBOX_KUNIT_TEST
 	tristate "KUnit tests for Allwinner sun55i msgbox" if !KUNIT_ALL_TESTS
-	depends on KUNIT
+	depends on SUN55I_MSGBOX && KUNIT
 	default KUNIT_ALL_TESTS
 	help
 	  KUnit tests for the Allwinner sun55i-msgbox driver, covering

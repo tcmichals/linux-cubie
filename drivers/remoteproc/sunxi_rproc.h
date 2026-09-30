@@ -94,6 +94,7 @@ struct sunxi_rproc {
 	size_t trace_size;
 
 	/* Reserved Memory & Mailbox State */
+	spinlock_t lock;
 	bool has_reserved_mem;
 	int crash_irq;
 	bool crash_irq_enabled;
@@ -101,7 +102,6 @@ struct sunxi_rproc {
 	struct mbox_chan *tx_chan;
 	struct mbox_chan *rx_chan;
 	struct work_struct vq_work;
-	u32 kick_msg;
 };
 
 extern const struct rproc_ops sunxi_rproc_ops;
