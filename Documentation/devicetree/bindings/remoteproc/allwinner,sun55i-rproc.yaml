@@ -27,25 +27,18 @@ properties:
     const: allwinner,sun55i-a523-rproc
 
   reg:
-    minItems: 1
-    maxItems: 4
-    description:
-      Memory-mapped register regions. The following named regions are
-      supported (all optional except at least one of r_sram or r_sram1) -
-      "cfg" for RISC-V core control and boot-vector registers,
-      "r_sram" for dedicated MCU SRAM Space 0,
-      "r_sram1" for switchable MCU SRAM Space 1,
-      "remap" for the hardware remap control register.
+    items:
+      - description: Configuration and boot vector registers
+      - description: Dedicated MCU SRAM Space 0
+      - description: Switchable MCU SRAM Space 1
+      - description: Hardware SRAM remap control register
 
   reg-names:
-    minItems: 1
-    maxItems: 4
     items:
-      enum:
-        - cfg
-        - r_sram
-        - r_sram1
-        - remap
+      - const: cfg
+      - const: r_sram
+      - const: r_sram1
+      - const: remap
 
   clocks:
     minItems: 1

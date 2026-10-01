@@ -28,10 +28,11 @@ properties:
       - allwinner,sun60i-a733-msgbox
 
   reg:
-    maxItems: 4
-    description:
-      Register banks for each of the four processor ports. Each port has
-      an independent 256-byte register bank.
+    items:
+      - description: ARM Cortex-A55 host port register bank
+      - description: HiFi4 Audio DSP port register bank
+      - description: CPUS power management port register bank
+      - description: XuanTie RISC-V port register bank
 
   reg-names:
     items:
@@ -48,22 +49,19 @@ properties:
 
   interrupts:
     minItems: 1
-    maxItems: 4
-    description:
-      One interrupt per processor port in port order (arm, dsp, cpus, rv).
-      The ARM host port interrupt is required; remote port interrupts are
-      optional. Use interrupt-names to identify which ports are present when
-      providing a partial list.
+    items:
+      - description: ARM Cortex-A55 host port interrupt
+      - description: HiFi4 Audio DSP port interrupt
+      - description: CPUS power management port interrupt
+      - description: XuanTie RISC-V port interrupt
 
   interrupt-names:
     minItems: 1
-    maxItems: 4
     items:
-      enum:
-        - arm
-        - dsp
-        - cpus
-        - rv
+      - const: arm
+      - const: dsp
+      - const: cpus
+      - const: rv
 
   '#mbox-cells':
     const: 1
