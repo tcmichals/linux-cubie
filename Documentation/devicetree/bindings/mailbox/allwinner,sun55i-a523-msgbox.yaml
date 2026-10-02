@@ -85,8 +85,8 @@ examples:
     mailbox@3003000 {
         compatible = "allwinner,sun55i-a523-msgbox";
         reg = <0x03003000 0x1000>,
-              <0x07094000 0x1000>,
               <0x07120000 0x1000>,
+              <0x07094000 0x1000>,
               <0x07136000 0x1000>;
         reg-names = "arm", "dsp", "cpus", "rv";
         clocks = <&ccu 120>;
