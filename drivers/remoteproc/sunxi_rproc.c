@@ -368,6 +368,8 @@ void sunxi_rproc_kick(struct rproc *rproc, int vqid)
 	ret = mbox_send_message(priv->tx_chan, &msg);
 	if (ret < 0)
 		dev_err_ratelimited(priv->dev, "failed to send mailbox kick: %d\n", ret);
+	else
+		mbox_client_txdone(priv->tx_chan, 0);
 }
 
 #if IS_ENABLED(CONFIG_SUNXI_REMOTEPROC_KUNIT_TEST)
@@ -571,38 +573,11 @@ static int sunxi_rproc_register_mem(struct platform_device *pdev, struct rproc *
 			dev_warn(dev, "failed to map 'remap' register\n");
 	}
 
-	/* 4b. Map Boot DRAM Carveout (Resource "dram" if defined in reg) */
-	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "dram");
-	if (res) {
-		priv->dram_phys = res->start;
-		priv->dram_size = resource_size(res);
-		priv->dram_va = devm_memremap(dev, res->start, resource_size(res), MEMREMAP_WB);
-		if (!priv->dram_va)
-			priv->dram_va = (__force void *)devm_ioremap_wc(dev, res->start,
-									resource_size(res));
-		if (!priv->dram_va)
-			dev_warn(dev, "failed to map 'dram' resource\n");
-	}
-
-	dev_info(dev, "Memory resources: r_sram=%s, r_sram1=%s, remap=%s, cfg=%s, dram=%s\n",
+	dev_info(dev, "Memory resources: r_sram=%s, r_sram1=%s, remap=%s, cfg=%s\n",
 		 priv->r_sram_va ? "yes" : "no",
 		 priv->r_sram1_va ? "yes" : "no",
 		 priv->remap_va ? "yes" : "no",
-		 priv->cfg_va ? "yes" : "no",
-		 priv->dram_va ? "yes" : "no");
-
-	/* 5. Map Trace Buffer (Resource "trace" if defined in reg) */
-	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "trace");
-	if (res) {
-		priv->trace_phys = res->start;
-		priv->trace_size = resource_size(res);
-		priv->trace_va = devm_memremap(dev, res->start, resource_size(res), MEMREMAP_WB);
-		if (!priv->trace_va)
-			priv->trace_va = (__force void *)devm_ioremap_wc(dev, res->start,
-									 resource_size(res));
-		dev_info(dev, "mapped 'trace' mmio resource %pa+%zu\n",
-			 &priv->trace_phys, priv->trace_size);
-	}
+		 priv->cfg_va ? "yes" : "no");
 
 	return 0;
 }
@@ -802,6 +777,7 @@ static int sunxi_rproc_probe(struct platform_device *pdev)
 	priv->cl.dev = dev;
 	priv->cl.rx_callback = sunxi_rproc_mb_rx_callback;
 	priv->cl.tx_block = false;
+	priv->cl.knows_txdone = true;
 
 	/*
 	 * If the hardware mailbox is assigned to userspace (generic-uio) or

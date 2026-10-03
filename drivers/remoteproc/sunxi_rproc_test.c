@@ -411,6 +411,14 @@ static void test_da_to_va_exact_upper_boundary_dram(struct kunit *test)
 					       A527_DRAM_PHYS + A527_DRAM_SIZE - 1, 2, NULL));
 }
 
+static const struct sunxi_rproc_cfg a733_e902_cfg = {
+	.name = "XuanTie E902 RISC-V",
+	.att = NULL,
+	.att_size = 0,
+	.has_remap_reg = false,
+	.boot_reg_offset = E906_STA_ADD_REG,
+};
+
 static void test_da_to_va_a733_sram_a2_layout(struct kunit *test)
 {
 	struct test_context *ctx = create_test_ctx(test);
@@ -420,8 +428,9 @@ static void test_da_to_va_a733_sram_a2_layout(struct kunit *test)
 	/*
 	 * Allwinner A733 (sun60i) E902 silicon profile:
 	 * Uses System SRAM A2 (0x00040000 - 0x00073FFF, 208 KB).
-	 * Has no Space 1 (r_sram1_va is NULL).
+	 * Has no Space 1 (r_sram1_va is NULL) and no ATT translation table.
 	 */
+	ctx->priv.cfg = &a733_e902_cfg;
 	ctx->priv.r_sram_phys = 0x00040000ULL;
 	ctx->priv.r_sram_size = 0x34000; /* 208 KB */
 	ctx->priv.r_sram1_va = NULL;
@@ -510,6 +519,7 @@ static void test_start_a733_mode1_and_mode2_bootaddr(struct kunit *test)
 	struct test_context *ctx = create_test_ctx(test);
 	int ret;
 
+	ctx->priv.cfg = &a733_e902_cfg;
 	ctx->priv.cfg_va = (void __iomem *)ctx->mock_cfg_regs;
 
 	/* Mode 1: Suspend/resume E902 SCP boot from DRAM (0x40014000) */

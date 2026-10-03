@@ -212,7 +212,7 @@ static bool sun55i_msgbox_last_tx_done(struct mbox_chan *chan)
 	sun55i_chan_to_route(n, &local_n, &p, &remote_id, &remote_n);
 
 	count = readl(mbox->regs[remote_id] + SUNXI_MSGBOX_MSG_STATUS(remote_n, p)) & MSG_NUM_MASK;
-	return count == 0;
+	return count < SUN55I_FIFO_MAX;
 }
 
 static bool sun55i_msgbox_peek_data(struct mbox_chan *chan)
