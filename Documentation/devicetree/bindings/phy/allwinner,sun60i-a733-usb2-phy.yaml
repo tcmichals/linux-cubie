@@ -1,0 +1,55 @@
+# SPDX-License-Identifier: (GPL-2.0 OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/phy/allwinner,sun60i-a733-usb2-phy.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Allwinner A733 USB 2.0 PHY
+
+maintainers:
+  - Tim Michals <tcmichals@gmail.com>
+
+properties:
+  compatible:
+    enum:
+      - allwinner,sun60i-a733-usb2-phy
+      - allwinner,sunxi-plat-phy
+
+  reg:
+    maxItems: 1
+
+  power-domains:
+    maxItems: 1
+
+  vbus-supply:
+    description: Regulator controlling VBUS power to the downstream port
+
+  allwinner,phy-tune-param:
+    $ref: /schemas/types.yaml#/definitions/uint32
+    description: Analog tuning parameters for squelch, pre-emphasis, and DCAP
+
+  aw,phy_tune_param:
+    $ref: /schemas/types.yaml#/definitions/uint32
+    description: Legacy analog tuning parameter property
+
+  "#phy-cells":
+    const: 0
+
+required:
+  - compatible
+  - reg
+  - "#phy-cells"
+
+additionalProperties: false
+
+examples:
+  - |
+    #include <dt-bindings/power/allwinner,sun60i-a733-pck-600.h>
+
+    phy@6b00000 {
+        compatible = "allwinner,sun60i-a733-usb2-phy";
+        reg = <0x06b00000 0x800>;
+        power-domains = <&pck600 PD_USB2>;
+        allwinner,phy-tune-param = <0x143338d6>;
+        #phy-cells = <0>;
+    };
