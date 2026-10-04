@@ -61,8 +61,7 @@
 		regulator-name = "usb0-vbus";
 		regulator-min-microvolt = <5000000>;
 		regulator-max-microvolt = <5000000>;
-		gpio = <&r_pio 0 2 GPIO_ACTIVE_HIGH>; /* PL2 */
-		gpios = <&r_pio 0 2 GPIO_ACTIVE_HIGH>;
+		gpios = <&r_pio 0 2 GPIO_ACTIVE_HIGH>; /* PL2 */
 		enable-active-high;
 		regulator-always-on;
 		regulator-boot-on;
@@ -76,8 +75,8 @@
 		regulator-max-microvolt = <5000000>;
 		gpios = <&r_pio 1 5 GPIO_ACTIVE_HIGH>; /* PM5 (USB_HOST_EN) */
 		enable-active-high;
-		off-on-delay-us = <200000>; /* 200ms to bleed 20uF capacitor bank */
-		startup-delay-us = <100000>; /* 100ms for FE1.1S 12MHz crystal to settle */
+		regulator-always-on;
+		regulator-boot-on;
 		status = "okay";
 	};
 
@@ -86,9 +85,10 @@
 		regulator-name = "wifi_power_en";
 		regulator-min-microvolt = <3300000>;
 		regulator-max-microvolt = <3300000>;
-		gpio = <&r_pio 1 0 GPIO_ACTIVE_HIGH>; /* PM0 (USB_WIFI_PWR) */
-		gpios = <&r_pio 1 0 GPIO_ACTIVE_HIGH>;
+		gpios = <&r_pio 1 0 GPIO_ACTIVE_HIGH>; /* PM0 (USB_WIFI_PWR) */
 		enable-active-high;
+		regulator-always-on;
+		regulator-boot-on;
 		status = "okay";
 	};
 
@@ -97,9 +97,10 @@
 		regulator-name = "wifi_chip_en";
 		regulator-min-microvolt = <3300000>;
 		regulator-max-microvolt = <3300000>;
-		gpio = <&r_pio 1 1 GPIO_ACTIVE_HIGH>; /* PM1 (WIFI_REG_ON) */
-		gpios = <&r_pio 1 1 GPIO_ACTIVE_HIGH>;
+		gpios = <&r_pio 1 1 GPIO_ACTIVE_HIGH>; /* PM1 (WIFI_REG_ON) */
 		enable-active-high;
+		regulator-always-on;
+		regulator-boot-on;
 		status = "okay";
 	};
 
@@ -311,7 +312,7 @@
 		};
 
 		wdt: watchdog@2050000 {
-			compatible = "allwinner,sun55i-a523-wdt", "allwinner,sun20i-d1-wdt";
+			compatible = "allwinner,sun60i-a733-wdt", "allwinner,sun55i-a523-wdt";
 			reg = <0x02050000 0x20>;
 			clocks = <&osc24M>;
 			interrupts = <GIC_SPI 63 IRQ_TYPE_LEVEL_HIGH>;
@@ -442,7 +443,7 @@
 			reg = <0x06b00000 0x800>;
 			power-domains = <&pck600 PD_USB2>;
 			vbus-supply = <&reg_usb1_vbus>;
-			aw,phy_tune_param = <0x143333d4>;
+			allwinner,phy-tune-param = <0x143338d6>;
 			#phy-cells = <0>;
 			status = "okay";
 		};
@@ -455,8 +456,8 @@
 				 <&ccu CLK_USB2_U2_REF>,
 				 <&ccu CLK_USB2_SUSPEND>;
 			clock-names = "bus_clk", "ref", "suspend";
-			assigned-clocks = <&ccu CLK_USB2_SUSPEND>;
-			assigned-clock-rates = <24000000>;
+			assigned-clocks = <&ccu CLK_USB2_MF>, <&ccu CLK_USB2_SUSPEND>;
+			assigned-clock-rates = <24000000>, <24000000>;
 			resets = <&ccu RST_BUS_USB2>;
 			power-domains = <&pck600 PD_USB2>;
 			phys = <&u2phy>;

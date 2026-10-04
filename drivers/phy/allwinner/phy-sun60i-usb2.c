@@ -3,6 +3,7 @@
  * Allwinner A733 (sun60iw2) USB 2.0 PHY driver for DWC3
  */
 
+#include <linux/delay.h>
 #include <linux/io.h>
 #include <linux/module.h>
 #include <linux/of.h>
@@ -11,7 +12,7 @@
 #include <linux/pm_runtime.h>
 #include <linux/regulator/consumer.h>
 
-#define SUN60I_DEFAULT_PHY_TUNE	0x143333d4
+#define SUN60I_DEFAULT_PHY_TUNE	0x143338d6
 
 struct sun60i_usb2_phy {
 	void __iomem *base;
@@ -30,16 +31,17 @@ static void sun60i_usb2_phy_hw_init(struct sun60i_usb2_phy *priv)
 	u32 val;
 
 	/*
-	 * Deassert PHY reset and enable ACLK/HCLK in SerDes top bridge.
-	 * Strictly enables ACLK_EN, HCLK_EN, and USB2P0_PHY_RSTN via read-modify-write
-	 * matching vendor combo_usb2_clk_set / combo_usb_clk_set without touching Bit 21.
+	 * Configure SerDes top bridge:
+	 * - 0x04: Interconnect mux routing (0x00070000) for DWC3 UTMI+ to USB 2.0 PHY.
+	 * - 0x08: Deassert PHY reset and enable ACLK/HCLK (0x00030010).
 	 */
-	subsys_bgr = ioremap(SERDES_TOP_SUBSYS_BGR, 4);
+	subsys_bgr = ioremap(0x06c00000, 0x10);
 	if (subsys_bgr) {
-		val = readl(subsys_bgr);
+		writel(0x00070000, subsys_bgr + 0x04);
+		val = readl(subsys_bgr + 0x08);
 		val |= BIT(17) | BIT(16) | BIT(4); /* ACLK_EN, HCLK_EN, USB2P0_PHY_RSTN */
-		writel(val, subsys_bgr);
-		readl(subsys_bgr);
+		writel(val, subsys_bgr + 0x08);
+		readl(subsys_bgr + 0x08);
 		iounmap(subsys_bgr);
 	}
 
@@ -48,43 +50,50 @@ static void sun60i_usb2_phy_hw_init(struct sun60i_usb2_phy *priv)
 		void __iomem *syscfg = ioremap(0x03000160, 0x10);
 
 		if (syscfg) {
-			/*
-			 * RESCAL_CTRL (0x160): select PCIE_USB 200 ohm trim
-			 * (bit 10), clear CAL_EN (bit 0).
-			 */
-			val = readl(syscfg + 0x00);
-			val &= ~BIT(0);
-			val |= BIT(10);
-			writel(val, syscfg + 0x00);
+			/* RESCAL_CTRL (0x160): 0x00c83532 matching golden dump */
+			writel(0x00c83532, syscfg + 0x00);
 			readl(syscfg + 0x00);
 
-			/* RES1_CTRL (0x168): clear manual trim bits [15:8] for auto-calibration */
-			val = readl(syscfg + 0x08);
-			val &= ~GENMASK(15, 8);
-			writel(val, syscfg + 0x08);
+			/* RES1_CTRL (0x168): 0x00c80000 matching golden dump */
+			writel(0x00c80000, syscfg + 0x08);
 			readl(syscfg + 0x08);
 
 			iounmap(syscfg);
 		}
 	}
 
-	/* Force ID low and VBUS valid in ISCR to guarantee host mode */
-	writel(0x0000b000, priv->base + PHY_USB2_ISCR);
+	/* Ensure DCAP 24MHz calibration reference clock (0x02003a00) is enabled */
+	{
+		void __iomem *ccu_dcap = ioremap(0x02003a00, 4);
+
+		if (ccu_dcap) {
+			writel(readl(ccu_dcap) | BIT(3), ccu_dcap);
+			readl(ccu_dcap);
+			iounmap(ccu_dcap);
+		}
+	}
+
+	/* Clear ISCR register */
+	writel(0x00000000, priv->base + PHY_USB2_ISCR);
 	readl(priv->base + PHY_USB2_ISCR);
 
 	/*
-	 * Clear SIDDQ (bit 3) and set OTGDISABLE (bit 10) | VBUSVLDEXT (bit 5) in PHYCTL
+	 * Clear SIDDQ (bit 3) and bit 9, set OTGDISABLE (bit 10) | VBUSVLDEXT (bit 5) in PHYCTL
 	 * using read-modify-write to preserve factory analog calibration trim.
 	 */
 	val = readl(priv->base + PHY_USB2_PHYCTL);
 	val |= BIT(10) | BIT(5);
-	val &= ~BIT(3);
+	val &= ~(BIT(3) | BIT(9));
 	writel(val, priv->base + PHY_USB2_PHYCTL);
 	readl(priv->base + PHY_USB2_PHYCTL);
 
 	/* Apply analog tuning (squelch threshold, pre-emphasis, DCAP) */
 	writel(priv->tune_param, priv->base + PHY_USB2_PHYTUNE);
 	readl(priv->base + PHY_USB2_PHYTUNE);
+
+	/* Configure PHY analog bias trim (0x24) matching Debian golden dump */
+	writel(0x00000008, priv->base + 0x24);
+	readl(priv->base + 0x24);
 }
 
 static int sun60i_usb2_phy_init(struct phy *phy)
@@ -93,27 +102,28 @@ static int sun60i_usb2_phy_init(struct phy *phy)
 	int ret;
 
 	if (priv->vbus) {
-		/*
-		 * If U-Boot or prior boot stage left PM5 (VBUS) high,
-		 * cycle the regulator off to force a clean Power-On Reset.
-		 * The Linux regulator core automatically enforces off-on-delay-us
-		 * (200ms) to bleed the 20uF capacitor bank before asserting PM5,
-		 * and startup-delay-us (100ms) for the crystal to settle.
-		 */
-		ret = regulator_enable(priv->vbus);
-		if (ret)
-			return ret;
-
-		ret = regulator_disable(priv->vbus);
-		if (ret)
-			return ret;
-
 		ret = regulator_enable(priv->vbus);
 		if (ret)
 			return ret;
 	}
 
 	sun60i_usb2_phy_hw_init(priv);
+
+	/* Set DWC3 GUSB2PHYCFG0 USBTRDTIM = 9 matching A733 UTMI pipeline latency and golden dump */
+	{
+		void __iomem *dwc3_phycfg = ioremap(0x06a0c200, 4);
+
+		if (dwc3_phycfg) {
+			u32 val = readl(dwc3_phycfg);
+
+			val &= ~GENMASK(13, 10);
+			val |= (9 << 10);
+			writel(val, dwc3_phycfg);
+			readl(dwc3_phycfg);
+			iounmap(dwc3_phycfg);
+		}
+	}
+
 	dev_info(&phy->dev, "A733 USB2 PHY initialized (tune=0x%08x)\n", priv->tune_param);
 	return 0;
 }
@@ -147,6 +157,7 @@ static int sun60i_usb2_phy_probe(struct platform_device *pdev)
 	struct sun60i_usb2_phy *priv;
 	struct phy_provider *provider;
 	struct phy *phy;
+	int ret;
 
 	priv = devm_kzalloc(dev, sizeof(*priv), GFP_KERNEL);
 	if (!priv)
@@ -163,24 +174,23 @@ static int sun60i_usb2_phy_probe(struct platform_device *pdev)
 		priv->vbus = NULL;
 	}
 
-	if (of_property_read_u32(dev->of_node, "aw,phy_tune_param", &priv->tune_param))
+	if (of_property_read_u32(dev->of_node, "allwinner,phy-tune-param", &priv->tune_param) &&
+	    of_property_read_u32(dev->of_node, "aw,phy_tune_param", &priv->tune_param))
 		priv->tune_param = SUN60I_DEFAULT_PHY_TUNE;
 
-	pm_runtime_enable(dev);
+	ret = devm_pm_runtime_enable(dev);
+	if (ret)
+		return ret;
 
 	phy = devm_phy_create(dev, NULL, &sun60i_usb2_phy_ops);
-	if (IS_ERR(phy)) {
-		pm_runtime_disable(dev);
+	if (IS_ERR(phy))
 		return PTR_ERR(phy);
-	}
 
 	phy_set_drvdata(phy, priv);
 
 	provider = devm_of_phy_provider_register(dev, of_phy_simple_xlate);
-	if (IS_ERR(provider)) {
-		pm_runtime_disable(dev);
+	if (IS_ERR(provider))
 		return PTR_ERR(provider);
-	}
 
 	/* Initialize hardware registers and ungate SerDes bus bridge for DWC3 GSNPSID */
 	sun60i_usb2_phy_hw_init(priv);
