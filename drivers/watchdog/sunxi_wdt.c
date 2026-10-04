@@ -94,26 +94,22 @@ static int sunxi_wdt_restart(struct watchdog_device *wdt_dev,
 	val |= regs->wdt_key_val;
 	writel(val, wdt_base + regs->wdt_cfg);
 
-	/* Set lowest timeout and enable watchdog */
+	/* Set lowest timeout (0.5s) and enable watchdog */
 	val = readl(wdt_base + regs->wdt_mode);
 	val &= ~(WDT_TIMEOUT_MASK << regs->wdt_timeout_shift);
 	val |= WDT_MODE_EN;
 	val |= regs->wdt_key_val;
 	writel(val, wdt_base + regs->wdt_mode);
 
-	/*
-	 * Restart the watchdog. The default (and lowest) interval
-	 * value for the watchdog is 0.5s.
-	 */
+	/* Reload the watchdog */
 	writel(WDT_CTRL_RELOAD, wdt_base + regs->wdt_ctrl);
 
-	while (1) {
-		mdelay(5);
-		val = readl(wdt_base + regs->wdt_mode);
-		val |= WDT_MODE_EN;
-		val |= regs->wdt_key_val;
-		writel(val, wdt_base + regs->wdt_mode);
-	}
+	/* Wait for watchdog to trigger hardware reset (0.5s timeout) */
+	mdelay(1000);
+
+	while (1)
+		cpu_relax();
+
 	return 0;
 }
 
@@ -251,6 +247,7 @@ static const struct of_device_id sunxi_wdt_dt_ids[] = {
 	{ .compatible = "allwinner,sun6i-a31-wdt", .data = &sun6i_wdt_reg },
 	{ .compatible = "allwinner,sun20i-d1-wdt", .data = &sun20i_wdt_reg },
 	{ .compatible = "allwinner,sun55i-a523-wdt", .data = &sun55i_wdt_reg },
+	{ .compatible = "allwinner,sun60i-a733-wdt", .data = &sun55i_wdt_reg },
 	{ /* sentinel */ }
 };
 MODULE_DEVICE_TABLE(of, sunxi_wdt_dt_ids);
@@ -282,7 +279,7 @@ static int sunxi_wdt_probe(struct platform_device *pdev)
 
 	watchdog_init_timeout(&sunxi_wdt->wdt_dev, timeout, dev);
 	watchdog_set_nowayout(&sunxi_wdt->wdt_dev, nowayout);
-	watchdog_set_restart_priority(&sunxi_wdt->wdt_dev, 128);
+	watchdog_set_restart_priority(&sunxi_wdt->wdt_dev, 255);
 
 	watchdog_set_drvdata(&sunxi_wdt->wdt_dev, sunxi_wdt);
 
