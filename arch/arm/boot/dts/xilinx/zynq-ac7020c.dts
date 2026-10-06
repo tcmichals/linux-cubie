@@ -1,0 +1,259 @@
+// SPDX-License-Identifier: GPL-2.0
+/* ALINX AC7020C SoM: XC7Z020-2CLG400I */
+/dts-v1/;
+#include "zynq-7000.dtsi"
+#include <dt-bindings/gpio/gpio.h>
+
+/ {
+	model = "ALINX AC7020C";
+	compatible = "alinx,ac7020c", "xlnx,zynq-7000";
+
+	aliases {
+		ethernet0 = &gem0;
+		serial0 = &uart1;
+		spi0 = &qspi;
+		mmc0 = &sdhci0;
+	};
+
+	memory@0 {
+		device_type = "memory";
+		reg = <0x0 0x40000000>;
+	};
+
+	chosen {
+		stdout-path = "serial0:115200n8";
+	};
+
+	leds {
+		compatible = "gpio-leds";
+		pinctrl-names = "default";
+		pinctrl-0 = <&pinctrl_ps_led_default>;
+
+		ps-led {
+			label = "ac7020c:green:ps";
+			gpios = <&gpio0 0 GPIO_ACTIVE_LOW>;
+			linux,default-trigger = "heartbeat";
+		};
+
+		pl-led {
+			label = "ac7020c:green:pl";
+			gpios = <&pl_gpio 0 GPIO_ACTIVE_LOW>;
+		};
+	};
+
+	usb_phy0: phy0 {
+		compatible = "usb-nop-xceiv";
+		#phy-cells = <0>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&pinctrl_usb_reset_default>;
+		reset-gpios = <&gpio0 46 GPIO_ACTIVE_LOW>;
+	};
+
+	amba_pl: amba-pl {
+		compatible = "simple-bus";
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+
+		pl_gpio: gpio@41200000 {
+			compatible = "xlnx,xps-gpio-1.00.a";
+			reg = <0x41200000 0x10000>;
+			clocks = <&clkc 15>;
+			gpio-controller;
+			#gpio-cells = <2>;
+			xlnx,all-outputs = <1>;
+			xlnx,gpio-width = <1>;
+			xlnx,is-dual = <0>;
+		};
+	};
+};
+
+&clkc {
+	ps-clk-frequency = <33333333>;
+	fclk-enable = <1>;
+};
+
+&gem0 {
+	status = "okay";
+	phy-mode = "rgmii-id";
+	phy-handle = <&ethernet_phy>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_gem0_default>;
+
+	ethernet_phy: ethernet-phy@1 {
+		reg = <1>;
+	};
+};
+
+&pinctrl0 {
+	pinctrl_ps_led_default: ps-led-default {
+		mux {
+			function = "gpio0";
+			groups = "gpio0_0_grp";
+		};
+
+		conf {
+			groups = "gpio0_0_grp";
+			slew-rate = <0>;
+			power-source = <1>;
+			bias-disable;
+		};
+	};
+
+	pinctrl_usb_reset_default: usb-reset-default {
+		mux {
+			function = "gpio0";
+			groups = "gpio0_46_grp";
+		};
+
+		conf {
+			groups = "gpio0_46_grp";
+			slew-rate = <0>;
+			power-source = <1>;
+			bias-disable;
+		};
+	};
+
+	pinctrl_gem0_default: gem0-default {
+		mux {
+			function = "ethernet0";
+			groups = "ethernet0_0_grp";
+		};
+
+		conf {
+			groups = "ethernet0_0_grp";
+			slew-rate = <0>;
+			power-source = <4>;
+		};
+
+		conf-rx {
+			pins = "MIO22", "MIO23", "MIO24", "MIO25", "MIO26", "MIO27";
+			bias-high-impedance;
+			low-power-disable;
+		};
+
+		conf-tx {
+			pins = "MIO16", "MIO17", "MIO18", "MIO19", "MIO20", "MIO21";
+			bias-disable;
+			low-power-enable;
+		};
+
+		mux-mdio {
+			function = "mdio0";
+			groups = "mdio0_0_grp";
+		};
+
+		conf-mdio {
+			groups = "mdio0_0_grp";
+			slew-rate = <0>;
+			power-source = <1>;
+			bias-disable;
+		};
+	};
+
+	pinctrl_sdhci0_default: sdhci0-default {
+		mux {
+			function = "sdio0";
+			groups = "sdio0_2_grp";
+		};
+
+		conf {
+			groups = "sdio0_2_grp";
+			slew-rate = <0>;
+			power-source = <1>;
+			bias-disable;
+		};
+
+		mux-cd {
+			function = "sdio0_cd";
+			groups = "gpio0_47_grp";
+		};
+
+		conf-cd {
+			groups = "gpio0_47_grp";
+			bias-pull-up;
+			slew-rate = <0>;
+			power-source = <1>;
+		};
+	};
+
+	pinctrl_uart1_default: uart1-default {
+		mux {
+			function = "uart1";
+			groups = "uart1_10_grp";
+		};
+
+		conf {
+			groups = "uart1_10_grp";
+			slew-rate = <0>;
+			power-source = <1>;
+		};
+
+		conf-rx {
+			pins = "MIO49";
+			bias-high-impedance;
+		};
+
+		conf-tx {
+			pins = "MIO48";
+			bias-disable;
+		};
+	};
+
+	pinctrl_usb0_default: usb0-default {
+		mux {
+			function = "usb0";
+			groups = "usb0_0_grp";
+		};
+
+		conf {
+			groups = "usb0_0_grp";
+			slew-rate = <0>;
+			power-source = <1>;
+		};
+
+		conf-rx {
+			pins = "MIO29", "MIO31", "MIO36";
+			bias-high-impedance;
+		};
+
+		conf-tx {
+			pins = "MIO28", "MIO30", "MIO32", "MIO33", "MIO34",
+			       "MIO35", "MIO37", "MIO38", "MIO39";
+			bias-disable;
+		};
+	};
+};
+
+&qspi {
+	status = "okay";
+	num-cs = <1>;
+
+	flash@0 {
+		compatible = "winbond,w25q256", "jedec,spi-nor";
+		reg = <0>;
+		spi-tx-bus-width = <1>;
+		spi-rx-bus-width = <4>;
+		spi-max-frequency = <50000000>;
+	};
+};
+
+&sdhci0 {
+	status = "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_sdhci0_default>;
+};
+
+&uart1 {
+	status = "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_uart1_default>;
+};
+
+&usb0 {
+	status = "okay";
+	dr_mode = "host";
+	usb-phy = <&usb_phy0>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_usb0_default>;
+};
