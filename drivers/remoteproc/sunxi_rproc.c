@@ -54,20 +54,12 @@ const struct sunxi_rproc_cfg sun55i_riscv_cfg = {
 };
 EXPORT_SYMBOL_IF_KUNIT(sun55i_riscv_cfg);
 
-static void sunxi_rproc_vq_work(struct work_struct *work)
-{
-	struct sunxi_rproc *priv = container_of(work, struct sunxi_rproc, vq_work);
-
-	rproc_vq_interrupt(priv->rproc, 0);
-	rproc_vq_interrupt(priv->rproc, 1);
-}
-
 static void sunxi_rproc_mb_rx_callback(struct mbox_client *cl, void *data)
 {
 	struct sunxi_rproc *priv = container_of(cl, struct sunxi_rproc, cl);
 
-	if (test_bit(SUNXI_RPROC_RUNNING, &priv->flags))
-		schedule_work(&priv->vq_work);
+	rproc_vq_interrupt(priv->rproc, 0);
+	rproc_vq_interrupt(priv->rproc, 1);
 }
 
 static irqreturn_t sunxi_rproc_crash_handler(int irq, void *data)
@@ -235,8 +227,6 @@ int sunxi_rproc_start(struct rproc *rproc)
 		return ret;
 	}
 
-	set_bit(SUNXI_RPROC_RUNNING, &priv->flags);
-
 	if (priv->crash_irq > 0 &&
 	    !test_and_set_bit(SUNXI_RPROC_CRASH_IRQ_ARMED, &priv->flags))
 		enable_irq(priv->crash_irq);
@@ -253,18 +243,12 @@ int sunxi_rproc_stop(struct rproc *rproc)
 
 	dev_dbg(priv->dev, "Halting %s core...\n", cfg->name);
 
-	/*
-	 * Assert reset first so the core stops generating mailbox interrupts,
-	 * then drain any work already queued.
-	 */
+	/* Assert reset so the core stops executing */
 	reset_control_assert(priv->rst_core);
 
 	if (priv->crash_irq > 0 &&
 	    test_and_clear_bit(SUNXI_RPROC_CRASH_IRQ_ARMED, &priv->flags))
 		disable_irq(priv->crash_irq);
-
-	clear_bit(SUNXI_RPROC_RUNNING, &priv->flags);
-	cancel_work_sync(&priv->vq_work);
 
 	return 0;
 }
@@ -636,8 +620,6 @@ static int sunxi_rproc_probe(struct platform_device *pdev)
 	}
 
 	/* 6. Mailbox IPC Client (optional: allows standalone mode if omitted) */
-	INIT_WORK(&priv->vq_work, sunxi_rproc_vq_work);
-
 	if (dev->of_node && of_property_present(dev->of_node, "mboxes")) {
 		priv->cl.dev = dev;
 		priv->cl.rx_callback = sunxi_rproc_mb_rx_callback;
@@ -675,7 +657,6 @@ static int sunxi_rproc_probe(struct platform_device *pdev)
 
 err_mbox_release:
 	sunxi_rproc_free_mbox(priv);
-	cancel_work_sync(&priv->vq_work);
 err_mem_release:
 	if (priv->has_reserved_mem)
 		of_reserved_mem_device_release(dev);
@@ -694,7 +675,6 @@ static void sunxi_rproc_remove(struct platform_device *pdev)
 	rproc_del(rproc);
 
 	sunxi_rproc_free_mbox(priv);
-	cancel_work_sync(&priv->vq_work);
 
 	if (priv->has_reserved_mem)
 		of_reserved_mem_device_release(&pdev->dev);

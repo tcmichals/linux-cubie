@@ -53,10 +53,6 @@ struct test_context {
 	u8 mock_sram1_buf[1024];
 };
 
-static void mock_vq_work(struct work_struct *work)
-{
-}
-
 static struct test_context *create_test_ctx(struct kunit *test)
 {
 	struct test_context *ctx;
@@ -84,8 +80,6 @@ static struct test_context *create_test_ctx(struct kunit *test)
 	ctx->priv.trace_phys = A527_TRACE_PHYS;
 	ctx->priv.trace_size = A527_TRACE_SIZE;
 	ctx->priv.cfg = &sun55i_riscv_cfg;
-
-	INIT_WORK(&ctx->priv.vq_work, mock_vq_work);
 
 	return ctx;
 }
@@ -482,7 +476,6 @@ static void test_start_bootaddr_programming(struct kunit *test)
 
 	/* Check that bootaddr was written to STA_ADD_REG (offset 0x204) */
 	KUNIT_EXPECT_EQ(test, readl(ctx->priv.cfg_va + E906_STA_ADD_REG), 0x40014000U);
-	KUNIT_EXPECT_TRUE(test, test_bit(SUNXI_RPROC_RUNNING, &ctx->priv.flags));
 }
 
 static void test_start_rejects_bootaddr_overflow(struct kunit *test)
@@ -502,11 +495,8 @@ static void test_stop_succeeds(struct kunit *test)
 	struct test_context *ctx = create_test_ctx(test);
 	int ret;
 
-	set_bit(SUNXI_RPROC_RUNNING, &ctx->priv.flags);
-
 	ret = sunxi_rproc_stop(&ctx->rproc);
 	KUNIT_EXPECT_EQ(test, ret, 0);
-	KUNIT_EXPECT_FALSE(test, test_bit(SUNXI_RPROC_RUNNING, &ctx->priv.flags));
 }
 
 /* ==================== Lifecycle: prepare & unprepare ==================== */

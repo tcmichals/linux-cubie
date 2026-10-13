@@ -44,7 +44,6 @@ struct sunxi_rproc_att {
 
 #define SUNXI_RPROC_MAX_RMEM		3
 #define SUNXI_RPROC_CRASH_IRQ_ARMED	0
-#define SUNXI_RPROC_RUNNING		1
 
 struct sunxi_rproc_rmem {
 	const char *name;
@@ -108,7 +107,6 @@ struct sunxi_rproc {
 	struct mbox_client cl;
 	struct mbox_chan *tx_chan;
 	struct mbox_chan *rx_chan;
-	struct work_struct vq_work;
 };
 
 #if IS_ENABLED(CONFIG_KUNIT)
