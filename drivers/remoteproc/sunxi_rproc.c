@@ -171,8 +171,9 @@ int sunxi_rproc_prepare(struct rproc *rproc)
 
 		remap_val |= SUNXI_REMAP_SRAMA3_2_BIT;
 		writel(remap_val, priv->remap_va);
+		readl(priv->remap_va);
 		dev_dbg(priv->dev, "REMAP_CTRL_REG set to 0x%08x (SRAMA3_2 enabled)\n",
-			readl(priv->remap_va));
+			remap_val);
 	}
 
 	/*
@@ -263,6 +264,7 @@ int sunxi_rproc_unprepare(struct rproc *rproc)
 
 		remap_val &= ~SUNXI_REMAP_SRAMA3_2_BIT;
 		writel(remap_val, priv->remap_va);
+		readl(priv->remap_va);
 	}
 
 	if (priv->clk_core)
