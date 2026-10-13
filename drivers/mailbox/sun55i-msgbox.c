@@ -254,7 +254,7 @@ static int sun55i_msgbox_probe(struct platform_device *pdev)
 	struct device *dev = &pdev->dev;
 	struct mbox_chan *chans;
 	struct sun55i_msgbox *mbox;
-	int i, ret, irq_cnt, local_n;
+	int i, ret, local_n;
 
 	mbox = devm_kzalloc(dev, sizeof(*mbox), GFP_KERNEL);
 	if (!mbox)
@@ -301,35 +301,21 @@ static int sun55i_msgbox_probe(struct platform_device *pdev)
 		writel(U32_MAX, mbox->regs[0] + SUNXI_MSGBOX_READ_IRQ_STATUS(local_n));
 	}
 
-	irq_cnt = platform_irq_count(pdev);
-	if (irq_cnt < 0) {
-		ret = irq_cnt;
+	/*
+	 * Request only the ARM host port interrupt (index 0).
+	 * Linux runs on the ARM host cluster and only services mbox->regs[0].
+	 * Coprocessor interrupts (DSP, CPUS, RISC-V) belong to their respective cores.
+	 */
+	ret = platform_get_irq(pdev, 0);
+	if (ret < 0)
 		goto err_assert_reset;
-	}
+	mbox->irq = ret;
 
-	if (irq_cnt > SUN55I_MAX_PROCESSORS) {
-		dev_err(dev, "too many interrupts defined (%d > %d)\n",
-			irq_cnt, SUN55I_MAX_PROCESSORS);
-		ret = -EINVAL;
+	ret = request_irq(mbox->irq, sun55i_msgbox_irq,
+			  IRQF_SHARED, dev_name(dev), mbox);
+	if (ret) {
+		dev_err(dev, "failed to request irq %d: %d\n", mbox->irq, ret);
 		goto err_assert_reset;
-	}
-
-	for (i = 0; i < irq_cnt; i++) {
-		int irq = platform_get_irq(pdev, i);
-
-		if (irq < 0) {
-			ret = irq;
-			goto err_free_irqs;
-		}
-
-		ret = request_irq(irq, sun55i_msgbox_irq,
-				  IRQF_SHARED, dev_name(dev), mbox);
-		if (ret) {
-			dev_err(dev, "failed to request irq %d: %d\n", irq, ret);
-			goto err_free_irqs;
-		}
-		mbox->irqs[i] = irq;
-		mbox->num_irqs = i + 1;
 	}
 
 	mbox->controller.dev           = dev;
@@ -345,17 +331,16 @@ static int sun55i_msgbox_probe(struct platform_device *pdev)
 	ret = mbox_controller_register(&mbox->controller);
 	if (ret) {
 		dev_err_probe(dev, ret, "failed to register controller\n");
-		goto err_free_irqs;
+		goto err_free_irq;
 	}
 
 	return 0;
 
-err_free_irqs:
-	/* Mask all hardware read IRQs and free registered IRQs before cutting clocks */
+err_free_irq:
+	/* Mask all hardware read IRQs and free registered IRQ before cutting clocks */
 	for (local_n = 0; local_n < SUN55I_NUM_ROUTES; local_n++)
 		writel(0, mbox->regs[0] + SUNXI_MSGBOX_READ_IRQ_ENABLE(local_n));
-	for (i = 0; i < mbox->num_irqs; i++)
-		free_irq(mbox->irqs[i], mbox);
+	free_irq(mbox->irq, mbox);
 err_assert_reset:
 	reset_control_assert(mbox->reset);
 err_disable_clk:
@@ -366,7 +351,7 @@ err_disable_clk:
 static void sun55i_msgbox_remove(struct platform_device *pdev)
 {
 	struct sun55i_msgbox *mbox = platform_get_drvdata(pdev);
-	int local_n, i;
+	int local_n;
 
 	/*
 	 * Mask hardware interrupts and synchronize kernel IRQ subsystem
@@ -376,13 +361,13 @@ static void sun55i_msgbox_remove(struct platform_device *pdev)
 	for (local_n = 0; local_n < SUN55I_NUM_ROUTES; local_n++)
 		writel(0, mbox->regs[0] + SUNXI_MSGBOX_READ_IRQ_ENABLE(local_n));
 
-	for (i = 0; i < mbox->num_irqs; i++)
-		synchronize_irq(mbox->irqs[i]);
+	if (mbox->irq > 0)
+		synchronize_irq(mbox->irq);
 
 	mbox_controller_unregister(&mbox->controller);
 
-	for (i = 0; i < mbox->num_irqs; i++)
-		free_irq(mbox->irqs[i], mbox);
+	if (mbox->irq > 0)
+		free_irq(mbox->irq, mbox);
 
 	reset_control_assert(mbox->reset);
 	clk_disable_unprepare(mbox->clk);

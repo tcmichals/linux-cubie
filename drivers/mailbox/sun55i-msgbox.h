@@ -42,8 +42,7 @@ struct sun55i_msgbox {
 	void __iomem *regs[SUN55I_MAX_PROCESSORS];
 	struct clk *clk;
 	struct reset_control *reset;
-	int irqs[SUN55I_MAX_PROCESSORS];
-	int num_irqs;
+	int irq;
 	/* Protects concurrent MMIO register access */
 	spinlock_t lock;
 };

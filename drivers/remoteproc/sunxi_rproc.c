@@ -189,6 +189,39 @@ int sunxi_rproc_prepare(struct rproc *rproc)
 	if (priv->r_sram1_va && priv->r_sram1_size)
 		memset_io(priv->r_sram1_va, 0, priv->r_sram1_size);
 
+	/*
+	 * Register formal carveouts on every boot.
+	 * rproc_shutdown() frees rproc->carveouts via rproc_resource_cleanup(),
+	 * so static carveouts must be registered in prepare() to persist across reboots.
+	 */
+	if (priv->trace_va && priv->trace_size) {
+		struct rproc_mem_entry *mem;
+
+		mem = rproc_mem_entry_init(priv->dev, priv->trace_va,
+					   (dma_addr_t)priv->trace_phys,
+					   priv->trace_size,
+					   (u32)priv->trace_phys,
+					   NULL, NULL, "%s", "trace");
+		if (!mem)
+			return -ENOMEM;
+		mem->is_iomem = false;
+		rproc_add_carveout(rproc, mem);
+	}
+
+	if (priv->dram_va && priv->dram_size) {
+		struct rproc_mem_entry *mem;
+
+		mem = rproc_mem_entry_init(priv->dev, priv->dram_va,
+					   (dma_addr_t)priv->dram_phys,
+					   priv->dram_size,
+					   (u32)priv->dram_phys,
+					   NULL, NULL, "%s", "dram");
+		if (!mem)
+			return -ENOMEM;
+		mem->is_iomem = false;
+		rproc_add_carveout(rproc, mem);
+	}
+
 	return 0;
 
 err_disable_msgbox_clk:
@@ -334,12 +367,17 @@ int sunxi_rproc_stop(struct rproc *rproc)
 
 	/* Disable crash IRQ while core is stopped */
 	if (priv->crash_irq > 0) {
+		bool disable = false;
+
 		spin_lock_irqsave(&priv->lock, flags);
 		if (priv->crash_irq_enabled) {
-			disable_irq(priv->crash_irq);
 			priv->crash_irq_enabled = false;
+			disable = true;
 		}
 		spin_unlock_irqrestore(&priv->lock, flags);
+
+		if (disable)
+			disable_irq(priv->crash_irq);
 	}
 
 	cancel_work_sync(&priv->vq_work);
@@ -609,8 +647,6 @@ static int sunxi_rproc_parse_memory_regions(struct rproc *rproc)
 		struct device_node *rmem_np;
 		struct resource res;
 		const char *name = NULL;
-		struct rproc_mem_entry *mem;
-		void *va;
 
 		rmem_np = of_parse_phandle(np, "memory-region", i);
 		if (!rmem_np)
@@ -630,41 +666,25 @@ static int sunxi_rproc_parse_memory_regions(struct rproc *rproc)
 		 * pool (of_reserved_mem_device_init) uses for the same region,
 		 * so a physical range never has mismatched WB/WC aliases. The
 		 * result is normal (non-__iomem) memory, hence is_iomem = false.
+		 * Formal rproc carveout entries are registered in prepare().
 		 */
 		if (name && (strstr(name, "trace") || of_node_name_eq(rmem_np, "trace"))) {
-			priv->trace_phys = res.start;
-			priv->trace_size = resource_size(&res);
-			priv->trace_va = devm_memremap(dev, res.start, resource_size(&res),
-						       MEMREMAP_WC);
-			dev_info(dev, "registered trace carveout %pa+%zu (%s)\n",
-				 &priv->trace_phys, priv->trace_size, name);
-			va = priv->trace_va;
+			if (!priv->trace_va) {
+				priv->trace_phys = res.start;
+				priv->trace_size = resource_size(&res);
+				priv->trace_va = devm_memremap(dev, res.start, resource_size(&res),
+							       MEMREMAP_WC);
+				dev_info(dev, "registered trace carveout %pa+%zu (%s)\n",
+					 &priv->trace_phys, priv->trace_size, name);
+			}
 		} else if (name && (strstr(name, "dram") || strstr(name, "vram"))) {
-			priv->dram_phys = res.start;
-			priv->dram_size = resource_size(&res);
-			priv->dram_va = devm_memremap(dev, res.start, resource_size(&res),
-						      MEMREMAP_WC);
-			dev_info(dev, "registered dram carveout %pa+%zu (%s)\n",
-				 &priv->dram_phys, priv->dram_size, name);
-			va = priv->dram_va;
-		} else if (priv->r_sram1_va && res.start == priv->r_sram1_phys) {
-			va = (__force void *)priv->r_sram1_va;
-		} else if (priv->r_sram_va && res.start == priv->r_sram_phys) {
-			va = (__force void *)priv->r_sram_va;
-		} else {
-			va = (__force void *)devm_ioremap_wc(dev, res.start, resource_size(&res));
-		}
-
-		if (va) {
-			mem = rproc_mem_entry_init(dev, va, (dma_addr_t)res.start,
-						   resource_size(&res), (u32)res.start,
-						   NULL, NULL, "%s", name);
-			if (mem) {
-				if (va == priv->trace_va || va == priv->dram_va)
-					mem->is_iomem = false;
-				else
-					mem->is_iomem = true;
-				rproc_add_carveout(rproc, mem);
+			if (!priv->dram_va) {
+				priv->dram_phys = res.start;
+				priv->dram_size = resource_size(&res);
+				priv->dram_va = devm_memremap(dev, res.start, resource_size(&res),
+							      MEMREMAP_WC);
+				dev_info(dev, "registered dram carveout %pa+%zu (%s)\n",
+					 &priv->dram_phys, priv->dram_size, name);
 			}
 		}
 		of_node_put(rmem_np);
@@ -856,13 +876,18 @@ static void sunxi_rproc_remove(struct platform_device *pdev)
 	struct sunxi_rproc *priv = rproc->priv;
 
 	/*
-	 * Teardown order is critical:
-	 * 1. Synchronously free crash IRQ first so running or pending ISRs
-	 *    are completed and cannot touch priv or report crashes after removal.
-	 * 2. Free mailbox channels so no new RX callbacks can be invoked.
-	 * 3. Cancel and drain any in-flight virtqueue work.
-	 * 4. Call rproc_del() to halt remote processor and tear down virtio devices.
+	 * Teardown order:
+	 * 1. rproc_del() halts the remote processor via rproc_shutdown() and
+	 *    unregisters VirtIO devices first, ensuring no further callbacks or
+	 *    kicks occur.
+	 * 2. Drain any remaining in-flight virtqueue work.
+	 * 3. Free mailbox channels and crash IRQ.
+	 * 4. Release reserved memory.
 	 */
+	rproc_del(rproc);
+
+	cancel_work_sync(&priv->vq_work);
+
 	if (priv->crash_irq > 0)
 		devm_free_irq(&pdev->dev, priv->crash_irq, priv);
 
@@ -874,10 +899,6 @@ static void sunxi_rproc_remove(struct platform_device *pdev)
 		mbox_free_channel(priv->tx_chan);
 		priv->tx_chan = NULL;
 	}
-
-	cancel_work_sync(&priv->vq_work);
-
-	rproc_del(rproc);
 
 	if (priv->has_reserved_mem)
 		of_reserved_mem_device_release(&pdev->dev);
