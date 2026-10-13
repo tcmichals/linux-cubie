@@ -351,21 +351,24 @@ int sunxi_rproc_stop(struct rproc *rproc)
 EXPORT_SYMBOL_GPL(sunxi_rproc_stop);
 #endif
 
+/*
+ * Kick payloads must outlive sunxi_rproc_kick(): with txdone_poll the mailbox
+ * core queues the message *pointer* when a previous request is still active
+ * and reads it later from the poll timer. Use immutable static storage, one
+ * entry per vring, so nothing is rewritten while queued.
+ */
+static const u32 sunxi_rproc_kick_msg[2] = { 0, 1 };
+
 void sunxi_rproc_kick(struct rproc *rproc, int vqid)
 {
 	struct sunxi_rproc *priv = rproc->priv;
-	u32 msg = (u32)vqid;
 	int ret;
 
 	if (!priv->tx_chan)
 		return;
 
-	/*
-	 * Pass stack-local msg. The sun55i mailbox controller copies the
-	 * 32-bit payload directly into the hardware FIFO during the
-	 * mbox_send_message() call under controller spinlock.
-	 */
-	ret = mbox_send_message(priv->tx_chan, &msg);
+	ret = mbox_send_message(priv->tx_chan,
+				(void *)&sunxi_rproc_kick_msg[vqid & 1]);
 	if (ret < 0)
 		dev_err_ratelimited(priv->dev, "failed to send mailbox kick: %d\n", ret);
 }
@@ -622,14 +625,17 @@ static int sunxi_rproc_parse_memory_regions(struct rproc *rproc)
 		if (!name)
 			name = rmem_np->name;
 
+		/*
+		 * Map trace/dram with MEMREMAP_WC, the same attribute the DMA
+		 * pool (of_reserved_mem_device_init) uses for the same region,
+		 * so a physical range never has mismatched WB/WC aliases. The
+		 * result is normal (non-__iomem) memory, hence is_iomem = false.
+		 */
 		if (name && (strstr(name, "trace") || of_node_name_eq(rmem_np, "trace"))) {
 			priv->trace_phys = res.start;
 			priv->trace_size = resource_size(&res);
 			priv->trace_va = devm_memremap(dev, res.start, resource_size(&res),
-						       MEMREMAP_WB);
-			if (!priv->trace_va)
-				priv->trace_va = (__force void *)
-					devm_ioremap_wc(dev, res.start, resource_size(&res));
+						       MEMREMAP_WC);
 			dev_info(dev, "registered trace carveout %pa+%zu (%s)\n",
 				 &priv->trace_phys, priv->trace_size, name);
 			va = priv->trace_va;
@@ -637,10 +643,7 @@ static int sunxi_rproc_parse_memory_regions(struct rproc *rproc)
 			priv->dram_phys = res.start;
 			priv->dram_size = resource_size(&res);
 			priv->dram_va = devm_memremap(dev, res.start, resource_size(&res),
-						      MEMREMAP_WB);
-			if (!priv->dram_va)
-				priv->dram_va = (__force void *)
-					devm_ioremap_wc(dev, res.start, resource_size(&res));
+						      MEMREMAP_WC);
 			dev_info(dev, "registered dram carveout %pa+%zu (%s)\n",
 				 &priv->dram_phys, priv->dram_size, name);
 			va = priv->dram_va;

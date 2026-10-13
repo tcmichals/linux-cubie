@@ -154,16 +154,20 @@ static int sun55i_msgbox_startup(struct mbox_chan *chan)
 
 	sun55i_chan_to_route(n, &local_n, &p, &remote_id, &remote_n);
 
+	/*
+	 * Clear pending status BEFORE flushing, same order as the ISR: a message
+	 * landing after the clear re-asserts the pending bit instead of being
+	 * left unread with no interrupt.
+	 */
+	writel(RD_IRQ_PEND_BIT(p),
+	       mbox->regs[0] + SUNXI_MSGBOX_READ_IRQ_STATUS(local_n));
+
 	/* Flush any stale receive data (bounded to FIFO_MAX) */
 	for (i = 0; i < SUN55I_FIFO_MAX; i++) {
 		if (!(readl(mbox->regs[0] + SUNXI_MSGBOX_MSG_STATUS(local_n, p)) & MSG_NUM_MASK))
 			break;
 		readl(mbox->regs[0] + SUNXI_MSGBOX_MSG_FIFO(local_n, p));
 	}
-
-	/* Clear pending status */
-	writel(RD_IRQ_PEND_BIT(p),
-	       mbox->regs[0] + SUNXI_MSGBOX_READ_IRQ_STATUS(local_n));
 
 	/* Enable receive IRQ */
 	spin_lock_irqsave(&mbox->lock, flags);
