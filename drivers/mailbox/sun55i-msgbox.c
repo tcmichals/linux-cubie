@@ -211,8 +211,13 @@ static bool sun55i_msgbox_last_tx_done(struct mbox_chan *chan)
 
 	sun55i_chan_to_route(n, &local_n, &p, &remote_id, &remote_n);
 
+	/*
+	 * The hardware allows snooping on the remote user's FIFO status.
+	 * Consider the last message acknowledged only once the remote has
+	 * drained the FIFO; free space alone does not mean it was consumed.
+	 */
 	count = readl(mbox->regs[remote_id] + SUNXI_MSGBOX_MSG_STATUS(remote_n, p)) & MSG_NUM_MASK;
-	return count < SUN55I_FIFO_MAX;
+	return count == 0;
 }
 
 static bool sun55i_msgbox_peek_data(struct mbox_chan *chan)
