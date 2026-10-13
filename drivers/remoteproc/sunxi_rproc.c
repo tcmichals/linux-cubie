@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Allwinner XuanTie E906/E907 RISC-V Remote Processor Driver
+ * Allwinner XuanTie E906 RISC-V Remote Processor Driver
  *
  * Copyright (C) 2024-2026 Allwinner Technology Co., Ltd.
  * Copyright (C) 2026 Tim Michals <tcmichals@gmail.com>
  *
  * CCU-integrated remoteproc driver for XuanTie RISC-V co-processors on
- * Allwinner SoCs (T527/A527/A523: E906/E907) supporting TCM, SRAM, and DRAM.
+ * Allwinner SoCs (T527/A527/A523: E906) supporting TCM, SRAM, and DRAM.
  */
 
 #include <linux/clk.h>
@@ -30,19 +30,19 @@
 static const struct sunxi_rproc_att sun55i_rproc_att[] = {
 	/* dev addr (remote)    , sys addr (host PA)    , size                   , flags */
 	/* Space 0 Core Aliases -> Space 0 Host PA */
-	{ E907_SRAM_SPACE0_DA,     SUN55I_SRAM_SPACE0_SYS, SUN55I_SRAM_SPACE0_SIZE, ATT_IOMEM },
-	{ E907_SRAM_SPACE0_DA_ALT, SUN55I_SRAM_SPACE0_SYS, SUN55I_SRAM_SPACE0_SIZE, ATT_IOMEM },
-	{ E907_SRAM_C_DA,          SUN55I_SRAM_SPACE0_SYS, SUN55I_SRAM_SPACE0_SIZE, ATT_IOMEM },
+	{ E906_SRAM_SPACE0_DA,     SUN55I_SRAM_SPACE0_SYS, SUN55I_SRAM_SPACE0_SIZE, ATT_IOMEM },
+	{ E906_SRAM_SPACE0_DA_ALT, SUN55I_SRAM_SPACE0_SYS, SUN55I_SRAM_SPACE0_SIZE, ATT_IOMEM },
+	{ E906_SRAM_C_DA,          SUN55I_SRAM_SPACE0_SYS, SUN55I_SRAM_SPACE0_SIZE, ATT_IOMEM },
 	{ SUN55I_SRAM_SPACE0_SYS,  SUN55I_SRAM_SPACE0_SYS, SUN55I_SRAM_SPACE0_SIZE, ATT_IOMEM },
 
 	/* Space 1 Core Aliases -> Space 1 Host PA */
-	{ E907_SRAM_SPACE1_DA,     SUN55I_SRAM_SPACE1_SYS, SUN55I_SRAM_SPACE1_SIZE, ATT_IOMEM },
-	{ E907_SRAM_SPACE1_DA_ALT, SUN55I_SRAM_SPACE1_SYS, SUN55I_SRAM_SPACE1_SIZE, ATT_IOMEM },
+	{ E906_SRAM_SPACE1_DA,     SUN55I_SRAM_SPACE1_SYS, SUN55I_SRAM_SPACE1_SIZE, ATT_IOMEM },
+	{ E906_SRAM_SPACE1_DA_ALT, SUN55I_SRAM_SPACE1_SYS, SUN55I_SRAM_SPACE1_SIZE, ATT_IOMEM },
 	{ SUN55I_SRAM_SPACE1_SYS,  SUN55I_SRAM_SPACE1_SYS, SUN55I_SRAM_SPACE1_SIZE, ATT_IOMEM },
 };
 
 const struct sunxi_rproc_cfg sun55i_riscv_cfg = {
-	.name = "XuanTie E907 RISC-V",
+	.name = "XuanTie E906 RISC-V",
 	.att = sun55i_rproc_att,
 	.att_size = ARRAY_SIZE(sun55i_rproc_att),
 	.has_remap_reg = true,
@@ -905,5 +905,5 @@ module_platform_driver(sunxi_rproc_driver);
 
 MODULE_AUTHOR("Allwinner Technology Co., Ltd.");
 MODULE_AUTHOR("Tim Michals <tcmichals@gmail.com>");
-MODULE_DESCRIPTION("Allwinner XuanTie E906/E907 RISC-V Remoteproc Driver");
+MODULE_DESCRIPTION("Allwinner XuanTie E906 RISC-V Remoteproc Driver");
 MODULE_LICENSE("GPL");

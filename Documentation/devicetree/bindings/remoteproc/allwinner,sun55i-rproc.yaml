@@ -4,7 +4,7 @@
 $id: http://devicetree.org/schemas/remoteproc/allwinner,sun55i-rproc.yaml#
 $schema: http://devicetree.org/meta-schemas/core.yaml#
 
-title: Allwinner XuanTie E906/E907 RISC-V Remoteproc
+title: Allwinner XuanTie E906 RISC-V Remoteproc
 
 maintainers:
   - Jernej Skrabec <jernej.skrabec@gmail.com>
@@ -13,7 +13,7 @@ maintainers:
 
 description:
   The Allwinner T527, A527, and A523 (sun55i) SoCs integrate a T-Head
-  (XuanTie) E906 or E907 RISC-V co-processor alongside the ARM Cortex-A55
+  (XuanTie) E906 RISC-V co-processor alongside the ARM Cortex-A55
   cluster. The co-processor runs bare-metal firmware loaded and lifecycle-
   managed by the Linux remoteproc framework.
 

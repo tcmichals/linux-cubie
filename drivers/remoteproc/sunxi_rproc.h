@@ -9,12 +9,12 @@
 #include <linux/remoteproc.h>
 #include <linux/reset.h>
 
-/* XuanTie E906/E907 core-local view of dedicated SRAM Spaces (Allwinner A523/A527/T527) */
-#define E907_SRAM_C_DA			0x00020000UL
-#define E907_SRAM_SPACE0_DA		0x3ff80000UL
-#define E907_SRAM_SPACE0_DA_ALT		0x3ffc0000UL
-#define E907_SRAM_SPACE1_DA		0x40000000UL
-#define E907_SRAM_SPACE1_DA_ALT		0x40040000UL
+/* XuanTie E906 core-local view of dedicated SRAM Spaces (Allwinner A523/A527/T527) */
+#define E906_SRAM_C_DA			0x00020000UL
+#define E906_SRAM_SPACE0_DA		0x3ff80000UL
+#define E906_SRAM_SPACE0_DA_ALT		0x3ffc0000UL
+#define E906_SRAM_SPACE1_DA		0x40000000UL
+#define E906_SRAM_SPACE1_DA_ALT		0x40040000UL
 
 /* Allwinner A523/A527/T527 System Bus (Host Physical) Addresses & Window Sizes */
 #define SUN55I_SRAM_SPACE0_SYS		0x07280000UL

@@ -340,7 +340,7 @@ config SUN55I_MSGBOX
 	  Mailbox implementation for the 4-port hardware message box present in
 	  Allwinner A523/A527/T527 (sun55i) and A733 (sun60i) SoCs. This mailbox
 	  provides 12 hardware FIFO channels for communication between the
-	  Cortex-A55 host, CPUS, HiFi4 DSP, and XuanTie E907 RISC-V coprocessors.
+	  Cortex-A55 host, CPUS, HiFi4 DSP, and XuanTie E906 RISC-V coprocessors.
 
 config SUN55I_MSGBOX_KUNIT_TEST
 	tristate "KUnit tests for Allwinner sun55i msgbox" if !KUNIT_ALL_TESTS
