@@ -40,18 +40,17 @@ struct sun55i_route {
 struct sun55i_msgbox {
 	struct mbox_controller controller;
 	void __iomem *regs[SUN55I_MAX_PROCESSORS];
-	struct clk *clk;
-	struct reset_control *reset;
-	int irq;
 	/* Protects concurrent MMIO register access */
 	spinlock_t lock;
 };
 
+#if IS_ENABLED(CONFIG_KUNIT)
 extern const struct sun55i_route sun55i_msgbox_arm_routes[SUN55I_NUM_ROUTES];
 extern const struct mbox_chan_ops sun55i_msgbox_chan_ops;
 
 void sun55i_chan_to_route(int chan_idx, int *local_n, int *p,
 			  int *remote_id, int *remote_n);
 irqreturn_t sun55i_msgbox_irq(int irq, void *dev_id);
+#endif
 
 #endif /* _SUN55I_MSGBOX_H_ */

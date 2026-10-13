@@ -294,7 +294,9 @@ static void test_functional_send_data_all_twelve_channels(struct kunit *test)
 		sun55i_msgbox_chan_ops.send_data(&fix->chans[ch], &val);
 
 		reg_idx = SUNXI_MSGBOX_MSG_FIFO(remote_n, p) / 4;
-		KUNIT_EXPECT_EQ(test, le32_to_cpu((__force __le32)fix->regs[remote_id][reg_idx]), val);
+		KUNIT_EXPECT_EQ(test,
+				le32_to_cpu((__force __le32)fix->regs[remote_id][reg_idx]),
+				val);
 	}
 }
 
@@ -321,7 +323,9 @@ static void test_functional_send_data_patterns(struct kunit *test)
 
 	for (i = 0; i < ARRAY_SIZE(patterns); i++) {
 		sun55i_msgbox_chan_ops.send_data(&fix->chans[8], (void *)&patterns[i]);
-		KUNIT_EXPECT_EQ(test, le32_to_cpu((__force __le32)fix->regs[3][reg_idx]), patterns[i]);
+		KUNIT_EXPECT_EQ(test,
+				le32_to_cpu((__force __le32)fix->regs[3][reg_idx]),
+				patterns[i]);
 	}
 }
 
@@ -821,6 +825,7 @@ static struct kunit_suite sun55i_msgbox_test_suite = {
 
 kunit_test_suite(sun55i_msgbox_test_suite);
 
+MODULE_IMPORT_NS("EXPORTED_FOR_KUNIT_TESTING");
 MODULE_AUTHOR("Tim Michals <tcmichals@gmail.com>");
 MODULE_DESCRIPTION("Comprehensive KUnit tests for Allwinner sun55i Message Box driver");
 MODULE_LICENSE("GPL");
