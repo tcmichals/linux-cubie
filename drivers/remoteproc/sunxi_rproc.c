@@ -66,7 +66,8 @@ static void sunxi_rproc_mb_rx_callback(struct mbox_client *cl, void *data)
 {
 	struct sunxi_rproc *priv = container_of(cl, struct sunxi_rproc, cl);
 
-	schedule_work(&priv->vq_work);
+	if (test_bit(SUNXI_RPROC_RUNNING, &priv->flags))
+		schedule_work(&priv->vq_work);
 }
 
 static irqreturn_t sunxi_rproc_crash_handler(int irq, void *data)
@@ -234,6 +235,8 @@ int sunxi_rproc_start(struct rproc *rproc)
 		return ret;
 	}
 
+	set_bit(SUNXI_RPROC_RUNNING, &priv->flags);
+
 	if (priv->crash_irq > 0 &&
 	    !test_and_set_bit(SUNXI_RPROC_CRASH_IRQ_ARMED, &priv->flags))
 		enable_irq(priv->crash_irq);
@@ -260,6 +263,7 @@ int sunxi_rproc_stop(struct rproc *rproc)
 	    test_and_clear_bit(SUNXI_RPROC_CRASH_IRQ_ARMED, &priv->flags))
 		disable_irq(priv->crash_irq);
 
+	clear_bit(SUNXI_RPROC_RUNNING, &priv->flags);
 	cancel_work_sync(&priv->vq_work);
 
 	return 0;

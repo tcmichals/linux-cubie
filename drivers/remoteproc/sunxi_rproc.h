@@ -44,6 +44,7 @@ struct sunxi_rproc_att {
 
 #define SUNXI_RPROC_MAX_RMEM		3
 #define SUNXI_RPROC_CRASH_IRQ_ARMED	0
+#define SUNXI_RPROC_RUNNING		1
 
 struct sunxi_rproc_rmem {
 	const char *name;
