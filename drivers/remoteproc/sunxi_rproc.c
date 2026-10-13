@@ -368,8 +368,6 @@ void sunxi_rproc_kick(struct rproc *rproc, int vqid)
 	ret = mbox_send_message(priv->tx_chan, &msg);
 	if (ret < 0)
 		dev_err_ratelimited(priv->dev, "failed to send mailbox kick: %d\n", ret);
-	else
-		mbox_client_txdone(priv->tx_chan, 0);
 }
 
 #if IS_ENABLED(CONFIG_SUNXI_REMOTEPROC_KUNIT_TEST)
@@ -777,7 +775,7 @@ static int sunxi_rproc_probe(struct platform_device *pdev)
 	priv->cl.dev = dev;
 	priv->cl.rx_callback = sunxi_rproc_mb_rx_callback;
 	priv->cl.tx_block = false;
-	priv->cl.knows_txdone = true;
+	priv->cl.knows_txdone = false;
 
 	/*
 	 * If the hardware mailbox is assigned to userspace (generic-uio) or

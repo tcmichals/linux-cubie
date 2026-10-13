@@ -294,7 +294,7 @@ static void test_functional_send_data_all_twelve_channels(struct kunit *test)
 		sun55i_msgbox_chan_ops.send_data(&fix->chans[ch], &val);
 
 		reg_idx = SUNXI_MSGBOX_MSG_FIFO(remote_n, p) / 4;
-		KUNIT_EXPECT_EQ(test, fix->regs[remote_id][reg_idx], val);
+		KUNIT_EXPECT_EQ(test, le32_to_cpu((__force __le32)fix->regs[remote_id][reg_idx]), val);
 	}
 }
 
@@ -307,7 +307,7 @@ static void test_functional_send_data_null(struct kunit *test)
 	sun55i_msgbox_chan_ops.send_data(&fix->chans[8], NULL);
 
 	reg_idx = SUNXI_MSGBOX_MSG_FIFO(2, 0) / 4;
-	KUNIT_EXPECT_EQ(test, fix->regs[3][reg_idx], 0U);
+	KUNIT_EXPECT_EQ(test, le32_to_cpu((__force __le32)fix->regs[3][reg_idx]), 0U);
 }
 
 static void test_functional_send_data_patterns(struct kunit *test)
@@ -321,7 +321,7 @@ static void test_functional_send_data_patterns(struct kunit *test)
 
 	for (i = 0; i < ARRAY_SIZE(patterns); i++) {
 		sun55i_msgbox_chan_ops.send_data(&fix->chans[8], (void *)&patterns[i]);
-		KUNIT_EXPECT_EQ(test, fix->regs[3][reg_idx], patterns[i]);
+		KUNIT_EXPECT_EQ(test, le32_to_cpu((__force __le32)fix->regs[3][reg_idx]), patterns[i]);
 	}
 }
 

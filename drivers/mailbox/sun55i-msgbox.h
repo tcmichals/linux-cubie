@@ -28,8 +28,8 @@
 #define SUNXI_MSGBOX_MSG_STATUS(n, p)		(0x060 + SUNXI_MSGBOX_OFFSET(n) + 0x4 * (p))
 #define SUNXI_MSGBOX_MSG_FIFO(n, p)		(0x070 + SUNXI_MSGBOX_OFFSET(n) + 0x4 * (p))
 
-#define RD_IRQ_EN_BIT(p)			BIT((p) * 2)
-#define RD_IRQ_PEND_BIT(p)			BIT((p) * 2)
+#define RD_IRQ_EN_BIT(p)			BIT_U32((p) * 2)
+#define RD_IRQ_PEND_BIT(p)			BIT_U32((p) * 2)
 #define MSG_NUM_MASK				GENMASK(3, 0)
 
 struct sun55i_route {
