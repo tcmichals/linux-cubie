@@ -1121,6 +1121,8 @@
 				 <&mcu_ccu RST_BUS_MCU_PUBSRAM>,
 				 <&mcu_ccu RST_BUS_MCU_RISCV_MSGBOX>;
 			reset-names = "cfg", "core", "sram", "msgbox";
+			power-domains = <&ppu PD_RISCV>, <&ppu PD_SRAM>;
+			power-domain-names = "riscv", "sram";
 			mboxes = <&msgbox 8>, <&msgbox 9>;
 			mbox-names = "rx", "tx";
 			status = "disabled";
