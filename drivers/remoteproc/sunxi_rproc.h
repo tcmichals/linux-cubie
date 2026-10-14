@@ -100,8 +100,7 @@ struct sunxi_rproc {
 	bool has_reserved_mem;
 	int crash_irq;
 	struct mbox_client cl;
-	struct mbox_chan *tx_chan;
-	struct mbox_chan *rx_chan;
+	struct mbox_chan *mbox_chan;
 	struct workqueue_struct *workqueue;
 	struct work_struct vq_work;
 	struct dev_pm_domain_list *pd_list;

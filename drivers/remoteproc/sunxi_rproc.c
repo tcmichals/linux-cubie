@@ -278,10 +278,10 @@ void sunxi_rproc_kick(struct rproc *rproc, int vqid)
 	struct sunxi_rproc *priv = rproc->priv;
 	int ret;
 
-	if (!priv->tx_chan)
+	if (!priv->mbox_chan)
 		return;
 
-	ret = mbox_send_message(priv->tx_chan,
+	ret = mbox_send_message(priv->mbox_chan,
 				(void *)&sunxi_rproc_kick_msg[vqid & 1]);
 	if (ret < 0)
 		dev_err_ratelimited(priv->dev, "failed to send mailbox kick: %d\n", ret);
@@ -478,14 +478,11 @@ static int sunxi_rproc_parse_memory_regions(struct sunxi_rproc *priv)
 
 static void sunxi_rproc_free_mbox(struct sunxi_rproc *priv)
 {
-	if (priv->rx_chan)
-		mbox_free_channel(priv->rx_chan);
-	if (priv->tx_chan)
-		mbox_free_channel(priv->tx_chan);
-	priv->rx_chan = NULL;
-	priv->tx_chan = NULL;
+	if (priv->mbox_chan)
+		mbox_free_channel(priv->mbox_chan);
+	priv->mbox_chan = NULL;
 
-	/* No rx callback can queue the work any more once the channels are freed */
+	/* No rx callback can queue the work any more once the channel is freed */
 	cancel_work_sync(&priv->vq_work);
 }
 
@@ -600,20 +597,13 @@ static int sunxi_rproc_probe(struct platform_device *pdev)
 		priv->cl.tx_block = false;
 		priv->cl.knows_txdone = false;
 
-		priv->tx_chan = mbox_request_channel_byname(&priv->cl, "tx");
-		if (IS_ERR(priv->tx_chan)) {
-			ret = dev_err_probe(dev, PTR_ERR(priv->tx_chan),
-					    "failed to request tx mailbox\n");
-			priv->tx_chan = NULL;
+		/* One channel carries kicks to the core and notifications from it */
+		priv->mbox_chan = mbox_request_channel(&priv->cl, 0);
+		if (IS_ERR(priv->mbox_chan)) {
+			ret = dev_err_probe(dev, PTR_ERR(priv->mbox_chan),
+					    "failed to request mailbox\n");
+			priv->mbox_chan = NULL;
 			goto err_mem_release;
-		}
-
-		priv->rx_chan = mbox_request_channel_byname(&priv->cl, "rx");
-		if (IS_ERR(priv->rx_chan)) {
-			ret = dev_err_probe(dev, PTR_ERR(priv->rx_chan),
-					    "failed to request rx mailbox\n");
-			priv->rx_chan = NULL;
-			goto err_mbox_release;
 		}
 	} else {
 		dev_dbg(dev, "no mboxes configured; operating in standalone mode\n");
