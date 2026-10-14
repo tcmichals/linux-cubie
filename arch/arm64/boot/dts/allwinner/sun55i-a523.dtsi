@@ -1113,14 +1113,13 @@
 			reg-names = "cfg", "r_sram", "r_sram1", "remap";
 			clocks = <&mcu_ccu CLK_BUS_MCU_RISCV_CFG>,
 				 <&mcu_ccu CLK_MCU_RISCV>,
-				 <&mcu_ccu CLK_BUS_MCU_PUBSRAM>,
-				 <&mcu_ccu CLK_BUS_MCU_RISCV_MSGBOX>;
-			clock-names = "bus", "core", "sram", "msgbox";
+				 <&mcu_ccu CLK_BUS_MCU_PUBSRAM>;
+			clock-names = "bus", "core", "sram";
 			resets = <&mcu_ccu RST_BUS_MCU_RISCV_CFG>,
 				 <&mcu_ccu RST_BUS_MCU_RISCV_CORE>,
 				 <&mcu_ccu RST_BUS_MCU_PUBSRAM>,
-				 <&mcu_ccu RST_BUS_MCU_RISCV_MSGBOX>;
-			reset-names = "cfg", "core", "sram", "msgbox";
+				 <&mcu_ccu RST_BUS_MCU_RISCV_DEBUG>;
+			reset-names = "cfg", "core", "sram", "debug";
 			power-domains = <&ppu PD_RISCV>, <&ppu PD_SRAM>;
 			power-domain-names = "riscv", "sram";
 			mboxes = <&msgbox 8>, <&msgbox 9>;
