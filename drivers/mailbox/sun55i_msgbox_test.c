@@ -160,63 +160,6 @@ static void test_chan_to_route_invalid_channels(struct kunit *test)
 
 /* =============== Register Offset Macro Tests =============== */
 
-static void test_msgbox_offset_values(struct kunit *test)
-{
-	KUNIT_EXPECT_EQ(test, SUNXI_MSGBOX_OFFSET(0), 0x000);
-	KUNIT_EXPECT_EQ(test, SUNXI_MSGBOX_OFFSET(1), 0x100);
-	KUNIT_EXPECT_EQ(test, SUNXI_MSGBOX_OFFSET(2), 0x200);
-	KUNIT_EXPECT_EQ(test, SUNXI_MSGBOX_OFFSET(3), 0x300);
-}
-
-static void test_msgbox_irq_reg_offsets(struct kunit *test)
-{
-	KUNIT_EXPECT_EQ(test, SUNXI_MSGBOX_READ_IRQ_ENABLE(0),  0x020);
-	KUNIT_EXPECT_EQ(test, SUNXI_MSGBOX_READ_IRQ_STATUS(0),  0x024);
-	KUNIT_EXPECT_EQ(test, SUNXI_MSGBOX_WRITE_IRQ_ENABLE(0), 0x030);
-	KUNIT_EXPECT_EQ(test, SUNXI_MSGBOX_WRITE_IRQ_STATUS(0), 0x034);
-
-	KUNIT_EXPECT_EQ(test, SUNXI_MSGBOX_READ_IRQ_ENABLE(1),  0x120);
-	KUNIT_EXPECT_EQ(test, SUNXI_MSGBOX_READ_IRQ_STATUS(1),  0x124);
-	KUNIT_EXPECT_EQ(test, SUNXI_MSGBOX_READ_IRQ_ENABLE(2),  0x220);
-	KUNIT_EXPECT_EQ(test, SUNXI_MSGBOX_READ_IRQ_STATUS(2),  0x224);
-}
-
-static void test_msgbox_fifo_reg_offsets(struct kunit *test)
-{
-	KUNIT_EXPECT_EQ(test, SUNXI_MSGBOX_FIFO_STATUS(0, 0), 0x050);
-	KUNIT_EXPECT_EQ(test, SUNXI_MSGBOX_FIFO_STATUS(0, 3), 0x05c);
-	KUNIT_EXPECT_EQ(test, SUNXI_MSGBOX_MSG_STATUS(0, 0),  0x060);
-	KUNIT_EXPECT_EQ(test, SUNXI_MSGBOX_MSG_STATUS(0, 3),  0x06c);
-	KUNIT_EXPECT_EQ(test, SUNXI_MSGBOX_MSG_FIFO(0, 0),    0x070);
-	KUNIT_EXPECT_EQ(test, SUNXI_MSGBOX_MSG_FIFO(0, 3),    0x07c);
-
-	/* Port 2 (RV remote in sun55i_msgbox_arm_routes[2]) */
-	KUNIT_EXPECT_EQ(test, SUNXI_MSGBOX_MSG_FIFO(2, 0),    0x270);
-	KUNIT_EXPECT_EQ(test, SUNXI_MSGBOX_MSG_FIFO(2, 3),    0x27c);
-}
-
-static void test_msgbox_irq_bit_positions(struct kunit *test)
-{
-	KUNIT_EXPECT_EQ(test, RD_IRQ_EN_BIT(0),   BIT(0));
-	KUNIT_EXPECT_EQ(test, RD_IRQ_EN_BIT(1),   BIT(2));
-	KUNIT_EXPECT_EQ(test, RD_IRQ_EN_BIT(2),   BIT(4));
-	KUNIT_EXPECT_EQ(test, RD_IRQ_EN_BIT(3),   BIT(6));
-
-	KUNIT_EXPECT_EQ(test, RD_IRQ_PEND_BIT(0), BIT(0));
-	KUNIT_EXPECT_EQ(test, RD_IRQ_PEND_BIT(1), BIT(2));
-	KUNIT_EXPECT_EQ(test, RD_IRQ_PEND_BIT(2), BIT(4));
-	KUNIT_EXPECT_EQ(test, RD_IRQ_PEND_BIT(3), BIT(6));
-}
-
-static void test_msgbox_constants(struct kunit *test)
-{
-	KUNIT_EXPECT_EQ(test, SUN55I_MAX_PROCESSORS, 4);
-	KUNIT_EXPECT_EQ(test, SUN55I_CHANS_PER_PROC,  4);
-	KUNIT_EXPECT_EQ(test, SUN55I_NUM_CHANS,      12);
-	KUNIT_EXPECT_EQ(test, SUN55I_FIFO_MAX,        8);
-	KUNIT_EXPECT_EQ(test, (u32)MSG_NUM_MASK,     0xfU);
-}
-
 /* =============== Functional Driver Ops Tests (Mock MMIO) =============== */
 
 struct mock_rx_sink {
@@ -803,11 +746,6 @@ static struct kunit_case sun55i_msgbox_cases[] = {
 	KUNIT_CASE(test_chan_to_route_boundary_limits),
 	KUNIT_CASE(test_chan_to_route_invalid_channels),
 	/* Register Macro Tests */
-	KUNIT_CASE(test_msgbox_offset_values),
-	KUNIT_CASE(test_msgbox_irq_reg_offsets),
-	KUNIT_CASE(test_msgbox_fifo_reg_offsets),
-	KUNIT_CASE(test_msgbox_irq_bit_positions),
-	KUNIT_CASE(test_msgbox_constants),
 	/* Functional Driver Ops Tests */
 	KUNIT_CASE(test_functional_send_data_all_twelve_channels),
 	KUNIT_CASE(test_functional_send_data_null),

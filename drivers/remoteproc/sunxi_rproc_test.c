@@ -21,7 +21,9 @@
 #include <linux/io.h>
 #include <linux/pm_runtime.h>
 #include <linux/remoteproc.h>
+#include <linux/sched.h>
 #include <linux/slab.h>
+#include <linux/workqueue.h>
 #include "remoteproc_internal.h"
 #include "sunxi_rproc.h"
 
@@ -53,6 +55,8 @@ struct test_context {
 	u32 mock_remap_reg;
 	u8 mock_sram_buf[1024];
 	u8 mock_sram1_buf[1024];
+	bool rx_work_ran;
+	bool rx_work_in_kworker;
 };
 
 static struct test_context *create_test_ctx(struct kunit *test)
@@ -80,13 +84,6 @@ static struct test_context *create_test_ctx(struct kunit *test)
 	ctx->priv.r_sram1_phys = A527_SRAM1_PHYS;
 	ctx->priv.r_sram1_size = A527_SRAM1_SIZE;
 
-	ctx->priv.dram_va = FAKE_DRAM_VA;
-	ctx->priv.dram_phys = A527_DRAM_PHYS;
-	ctx->priv.dram_size = A527_DRAM_SIZE;
-
-	ctx->priv.trace_va = FAKE_TRACE_VA;
-	ctx->priv.trace_phys = A527_TRACE_PHYS;
-	ctx->priv.trace_size = A527_TRACE_SIZE;
 	ctx->priv.cfg = &sun55i_riscv_cfg;
 
 	return ctx;
@@ -220,31 +217,76 @@ static void test_da_to_va_0x40040000_is_not_sram(struct kunit *test)
 
 /* ==================== da_to_va: DRAM & Trace Translations ==================== */
 
-static void test_da_to_va_dram_direct(struct kunit *test)
+/*
+ * DRAM (firmware code/data, trace, vrings) is not in the ATT: the driver op
+ * returns NULL and the remoteproc core resolves it from the carveout list.
+ * This is the path the ELF loader takes for segments linked into DRAM.
+ */
+static void add_dram_carveout(struct kunit *test, struct test_context *ctx,
+			      void *va, u64 phys, size_t size, const char *name)
 {
-	struct test_context *ctx = create_test_ctx(test);
-	bool is_iomem = true;
-	void *va;
+	struct rproc_mem_entry *mem;
 
-	va = sunxi_rproc_da_to_va(&ctx->rproc, A527_DRAM_PHYS, 0x100, &is_iomem);
-	KUNIT_ASSERT_NOT_NULL(test, va);
-	KUNIT_EXPECT_PTR_EQ(test, va, FAKE_DRAM_VA);
-	KUNIT_EXPECT_FALSE(test, is_iomem);
+	mem = rproc_mem_entry_init(ctx->priv.dev, va, (dma_addr_t)phys, size,
+				   (u32)phys, NULL, NULL, "%s", name);
+	KUNIT_ASSERT_NOT_NULL(test, mem);
+	rproc_add_carveout(&ctx->rproc, mem);
 }
 
-static void test_da_to_va_trace_direct(struct kunit *test)
+static void free_carveouts(struct test_context *ctx)
+{
+	struct rproc_mem_entry *entry, *tmp;
+
+	list_for_each_entry_safe(entry, tmp, &ctx->rproc.carveouts, node) {
+		list_del(&entry->node);
+		kfree(entry);
+	}
+}
+
+static void test_da_to_va_dram_left_to_core(struct kunit *test)
+{
+	struct test_context *ctx = create_test_ctx(test);
+
+	add_dram_carveout(test, ctx, FAKE_DRAM_VA, A527_DRAM_PHYS, A527_DRAM_SIZE, "dram");
+	KUNIT_EXPECT_NULL(test, sunxi_rproc_da_to_va(&ctx->rproc, A527_DRAM_PHYS, 0x100, NULL));
+	free_carveouts(ctx);
+}
+
+static void test_rproc_da_to_va_dram_carveout(struct kunit *test)
 {
 	struct test_context *ctx = create_test_ctx(test);
 	bool is_iomem = true;
 	void *va;
 
-	va = sunxi_rproc_da_to_va(&ctx->rproc, A527_TRACE_PHYS, 0x100, &is_iomem);
-	KUNIT_ASSERT_NOT_NULL(test, va);
+	/* rproc->ops is not const: give the core a writable copy */
+	ctx->rproc.ops = kunit_kzalloc(test, sizeof(*ctx->rproc.ops), GFP_KERNEL);
+	KUNIT_ASSERT_NOT_NULL(test, ctx->rproc.ops);
+	*ctx->rproc.ops = sunxi_rproc_ops;
+	add_dram_carveout(test, ctx, FAKE_DRAM_VA, A527_DRAM_PHYS, A527_DRAM_SIZE, "dram");
+	add_dram_carveout(test, ctx, FAKE_TRACE_VA, A527_TRACE_PHYS, A527_TRACE_SIZE, "trace");
+
+	/* A firmware segment linked into DRAM */
+	va = rproc_da_to_va(&ctx->rproc, A527_DRAM_PHYS + 0x1000, 0x100, &is_iomem);
+	KUNIT_EXPECT_PTR_EQ(test, va, FAKE_DRAM_VA + 0x1000);
+	KUNIT_EXPECT_FALSE(test, is_iomem);
+
+	/* Last byte of DRAM resolves; one byte beyond does not */
+	va = rproc_da_to_va(&ctx->rproc, A527_DRAM_PHYS + A527_DRAM_SIZE - 1, 1, NULL);
+	KUNIT_EXPECT_PTR_EQ(test, va, FAKE_DRAM_VA + A527_DRAM_SIZE - 1);
+	KUNIT_EXPECT_NULL(test, rproc_da_to_va(&ctx->rproc,
+					       A527_DRAM_PHYS + A527_DRAM_SIZE - 1, 2, NULL));
+
+	/* Trace buffer */
+	va = rproc_da_to_va(&ctx->rproc, A527_TRACE_PHYS, 0x100, NULL);
 	KUNIT_EXPECT_PTR_EQ(test, va, FAKE_TRACE_VA);
-	KUNIT_EXPECT_FALSE(test, is_iomem);
-}
 
-/* ==================== da_to_va: Negative & Isolation Tests ==================== */
+	/* SRAM still goes through the driver's ATT */
+	va = rproc_da_to_va(&ctx->rproc, E906_SRAM_SPACE0_DA, 0x100, &is_iomem);
+	KUNIT_EXPECT_PTR_EQ(test, va, FAKE_SRAM_PTR);
+	KUNIT_EXPECT_TRUE(test, is_iomem);
+
+	free_carveouts(ctx);
+}
 
 static void test_da_to_va_out_of_range(struct kunit *test)
 {
@@ -317,12 +359,6 @@ static void test_da_to_va_unmapped_regions_return_null(struct kunit *test)
 	KUNIT_EXPECT_NULL(test,
 			  sunxi_rproc_da_to_va(&ctx->rproc,
 					       A527_SRAM1_PHYS, 0x100, NULL));
-
-	/* When DRAM and Trace are unmapped, they return NULL */
-	ctx->priv.dram_va = NULL;
-	KUNIT_EXPECT_NULL(test, sunxi_rproc_da_to_va(&ctx->rproc, A527_DRAM_PHYS, 0x100, NULL));
-	ctx->priv.trace_va = NULL;
-	KUNIT_EXPECT_NULL(test, sunxi_rproc_da_to_va(&ctx->rproc, A527_TRACE_PHYS, 0x100, NULL));
 }
 
 static void test_da_to_va_space_isolation(struct kunit *test)
@@ -369,22 +405,6 @@ static void test_da_to_va_exact_upper_boundary_space1(struct kunit *test)
 	KUNIT_EXPECT_NULL(test,
 			  sunxi_rproc_da_to_va(&ctx->rproc,
 					       E906_SRAM_SPACE1_DA + A527_SRAM1_SIZE - 1, 2, NULL));
-}
-
-static void test_da_to_va_exact_upper_boundary_dram(struct kunit *test)
-{
-	struct test_context *ctx = create_test_ctx(test);
-	void *va;
-
-	/* Exact last byte of DRAM carveout */
-	va = sunxi_rproc_da_to_va(&ctx->rproc, A527_DRAM_PHYS + A527_DRAM_SIZE - 1, 1, NULL);
-	KUNIT_ASSERT_NOT_NULL(test, va);
-	KUNIT_EXPECT_PTR_EQ(test, va, FAKE_DRAM_VA + A527_DRAM_SIZE - 1);
-
-	/* Spanning 1 byte beyond DRAM carveout must be rejected */
-	KUNIT_EXPECT_NULL(test,
-			  sunxi_rproc_da_to_va(&ctx->rproc,
-					       A527_DRAM_PHYS + A527_DRAM_SIZE - 1, 2, NULL));
 }
 
 static void test_da_to_va_unaligned_lengths(struct kunit *test)
@@ -599,6 +619,39 @@ static void test_kick_null_tx_chan_safe(struct kunit *test)
 
 /* ==================== Test Suite Registration ==================== */
 
+/*
+ * The mailbox rx callback runs in hardirq context with the msgbox lock held,
+ * and the rpmsg receive path takes mutexes. The callback must only queue the
+ * vring work; the work must run in a kworker (regression test for calling
+ * rproc_vq_interrupt() from the callback).
+ */
+static void rx_work_probe_fn(struct work_struct *work)
+{
+	struct test_context *ctx = container_of(work, struct test_context, priv.vq_work);
+
+	ctx->rx_work_ran = true;
+	ctx->rx_work_in_kworker = !!(current->flags & PF_WQ_WORKER);
+}
+
+static void test_rx_callback_defers_to_workqueue(struct kunit *test)
+{
+	struct test_context *ctx = create_test_ctx(test);
+
+	ctx->priv.workqueue = alloc_ordered_workqueue("sunxi-rproc-test", WQ_HIGHPRI);
+	KUNIT_ASSERT_NOT_NULL(test, ctx->priv.workqueue);
+	INIT_WORK(&ctx->priv.vq_work, rx_work_probe_fn);
+
+	local_irq_disable();
+	sunxi_rproc_mb_rx_callback(&ctx->priv.cl, NULL);
+	local_irq_enable();
+
+	flush_workqueue(ctx->priv.workqueue);
+	destroy_workqueue(ctx->priv.workqueue);
+
+	KUNIT_EXPECT_TRUE(test, ctx->rx_work_ran);
+	KUNIT_EXPECT_TRUE(test, ctx->rx_work_in_kworker);
+}
+
 static struct kunit_case sunxi_rproc_test_cases[] = {
 	/* da_to_va Guard Tests */
 	KUNIT_CASE(test_da_to_va_zero_length_returns_null),
@@ -616,8 +669,8 @@ static struct kunit_case sunxi_rproc_test_cases[] = {
 	KUNIT_CASE(test_da_to_va_sram_space1_40000000),
 	KUNIT_CASE(test_da_to_va_0x40040000_is_not_sram),
 	/* da_to_va DRAM & Trace Tests */
-	KUNIT_CASE(test_da_to_va_dram_direct),
-	KUNIT_CASE(test_da_to_va_trace_direct),
+	KUNIT_CASE(test_da_to_va_dram_left_to_core),
+	KUNIT_CASE(test_rproc_da_to_va_dram_carveout),
 	/* da_to_va Out of Range, Boundary, Unmapped & Isolation Tests */
 	KUNIT_CASE(test_da_to_va_out_of_range),
 	KUNIT_CASE(test_da_to_va_sram_boundaries),
@@ -626,7 +679,6 @@ static struct kunit_case sunxi_rproc_test_cases[] = {
 	KUNIT_CASE(test_da_to_va_space_isolation),
 	KUNIT_CASE(test_da_to_va_exact_upper_boundary_space0),
 	KUNIT_CASE(test_da_to_va_exact_upper_boundary_space1),
-	KUNIT_CASE(test_da_to_va_exact_upper_boundary_dram),
 	KUNIT_CASE(test_da_to_va_unaligned_lengths),
 	KUNIT_CASE(test_da_to_va_malformed_rsc_table_entry),
 	KUNIT_CASE(test_da_to_va_corrupted_elf_overflow_segment),
@@ -640,6 +692,7 @@ static struct kunit_case sunxi_rproc_test_cases[] = {
 	KUNIT_CASE(test_prepare_carveout_lifecycle),
 	/* Operations: kick */
 	KUNIT_CASE(test_kick_null_tx_chan_safe),
+	KUNIT_CASE(test_rx_callback_defers_to_workqueue),
 	{}
 };
 
