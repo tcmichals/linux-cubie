@@ -8,6 +8,7 @@
 #include <linux/mailbox_client.h>
 #include <linux/remoteproc.h>
 #include <linux/reset.h>
+#include <linux/workqueue.h>
 
 /* XuanTie E906 core-local view of dedicated SRAM Spaces (Allwinner A523/A527/T527) */
 #define E906_SRAM_C_DA			0x00020000UL
@@ -107,6 +108,8 @@ struct sunxi_rproc {
 	struct mbox_client cl;
 	struct mbox_chan *tx_chan;
 	struct mbox_chan *rx_chan;
+	struct workqueue_struct *workqueue;
+	struct work_struct vq_work;
 };
 
 #if IS_ENABLED(CONFIG_KUNIT)

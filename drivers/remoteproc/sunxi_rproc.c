@@ -54,12 +54,23 @@ const struct sunxi_rproc_cfg sun55i_riscv_cfg = {
 };
 EXPORT_SYMBOL_IF_KUNIT(sun55i_riscv_cfg);
 
+static void sunxi_rproc_vq_work(struct work_struct *work)
+{
+	struct sunxi_rproc *priv = container_of(work, struct sunxi_rproc, vq_work);
+
+	rproc_vq_interrupt(priv->rproc, 0);
+	rproc_vq_interrupt(priv->rproc, 1);
+}
+
+/*
+ * Mailbox rx callbacks run in atomic context, but the virtio/rpmsg receive
+ * path takes mutexes, so the vring notifications are handled from a work item.
+ */
 static void sunxi_rproc_mb_rx_callback(struct mbox_client *cl, void *data)
 {
 	struct sunxi_rproc *priv = container_of(cl, struct sunxi_rproc, cl);
 
-	rproc_vq_interrupt(priv->rproc, 0);
-	rproc_vq_interrupt(priv->rproc, 1);
+	queue_work(priv->workqueue, &priv->vq_work);
 }
 
 static irqreturn_t sunxi_rproc_crash_handler(int irq, void *data)
@@ -540,6 +551,9 @@ static void sunxi_rproc_free_mbox(struct sunxi_rproc *priv)
 		mbox_free_channel(priv->tx_chan);
 	priv->rx_chan = NULL;
 	priv->tx_chan = NULL;
+
+	/* No rx callback can queue the work any more once the channels are freed */
+	cancel_work_sync(&priv->vq_work);
 }
 
 static int sunxi_rproc_probe(struct platform_device *pdev)
@@ -620,7 +634,16 @@ static int sunxi_rproc_probe(struct platform_device *pdev)
 	}
 
 	/* 6. Mailbox IPC Client (optional: allows standalone mode if omitted) */
+	INIT_WORK(&priv->vq_work, sunxi_rproc_vq_work);
+
 	if (dev->of_node && of_property_present(dev->of_node, "mboxes")) {
+		priv->workqueue = devm_alloc_ordered_workqueue(dev, "%s", WQ_HIGHPRI,
+							       dev_name(dev));
+		if (!priv->workqueue) {
+			ret = -ENOMEM;
+			goto err_mem_release;
+		}
+
 		priv->cl.dev = dev;
 		priv->cl.rx_callback = sunxi_rproc_mb_rx_callback;
 		priv->cl.tx_block = false;
