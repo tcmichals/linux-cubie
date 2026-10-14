@@ -391,7 +391,9 @@ config SUNXI_REMOTEPROC
 
 config SUNXI_REMOTEPROC_KUNIT_TEST
 	tristate "KUnit tests for Allwinner sunxi remoteproc" if !KUNIT_ALL_TESTS
-	depends on SUNXI_REMOTEPROC && KUNIT && !UML
+	# The tests use plain memory as fake MMIO, which readl()/writel()
+	# only handle like registers on the architectures below.
+	depends on SUNXI_REMOTEPROC && KUNIT && (ARM64 || COMPILE_TEST) && !UML
 	default KUNIT_ALL_TESTS
 	help
 	  KUnit tests for the Allwinner sunxi_rproc driver, covering

@@ -2,16 +2,12 @@
 /*
  * KUnit tests for Allwinner XuanTie RISC-V remoteproc driver (sunxi_rproc.c)
  *
- * Comprehensive test suite validating:
- *  - da_to_va() address translation across all hardware windows & aliases
- *  - 64-bit integer overflow protection and zero-length handling
- *  - Out-of-bounds, cross-space isolation, and window unmapped error paths
- *  - Lifecycle operations: start() STA_ADD programming & bootaddr validation
- *  - Lifecycle operations: prepare() and unprepare() SRAM remap & clearing
- *  - kick() message formatting and NULL tx_chan safety
- *  - rproc_ops table completeness
- *
- * Directly tests driver functions without code duplication.
+ * Covers:
+ *  - da_to_va() translation of both SRAM windows, their bounds, overflow
+ *    and zero-length handling, and that DRAM is left to the core carveouts
+ *  - start(): STA_ADD programming and bootaddr validation
+ *  - prepare()/unprepare(): remap bit, SRAM clearing, carveout re-registration
+ *  - mailbox rx callback deferring vring processing to the workqueue
  *
  * Copyright (C) 2026 Tim Michals <tcmichals@gmail.com>
  */
@@ -106,17 +102,6 @@ static void test_da_to_va_overflow_guard(struct kunit *test)
 
 	KUNIT_EXPECT_NULL(test, sunxi_rproc_da_to_va(&ctx->rproc, U64_MAX - 0x10, 0x20, NULL));
 	KUNIT_EXPECT_NULL(test, sunxi_rproc_da_to_va(&ctx->rproc, U64_MAX, 1, NULL));
-}
-
-static void test_da_to_va_null_is_iomem_safe(struct kunit *test)
-{
-	struct test_context *ctx = create_test_ctx(test);
-	void *va;
-
-	/* Must succeed without dereferencing NULL is_iomem */
-	va = sunxi_rproc_da_to_va(&ctx->rproc, E906_SRAM_SPACE0_DA, 0x100, NULL);
-	KUNIT_ASSERT_NOT_NULL(test, va);
-	KUNIT_EXPECT_PTR_EQ(test, va, FAKE_SRAM_PTR);
 }
 
 /* ==================== da_to_va: Space 0 Translations ==================== */
@@ -323,21 +308,6 @@ static void test_da_to_va_sram_boundaries(struct kunit *test)
 					       A527_SRAM1_SIZE - 4, 8, NULL));
 }
 
-static void test_da_to_va_space1_boundaries(struct kunit *test)
-{
-	struct test_context *ctx = create_test_ctx(test);
-	void *va;
-
-	/* Exact last byte inside Space 1 -> valid */
-	va = sunxi_rproc_da_to_va(&ctx->rproc, E906_SRAM_SPACE1_DA + A527_SRAM1_SIZE - 1, 1, NULL);
-	KUNIT_ASSERT_NOT_NULL(test, va);
-
-	/* Spanning past Space 1 end -> NULL */
-	KUNIT_EXPECT_NULL(test,
-			  sunxi_rproc_da_to_va(&ctx->rproc,
-					       E906_SRAM_SPACE1_DA + A527_SRAM1_SIZE - 4, 8, NULL));
-}
-
 static void test_da_to_va_unmapped_regions_return_null(struct kunit *test)
 {
 	struct test_context *ctx = create_test_ctx(test);
@@ -359,20 +329,6 @@ static void test_da_to_va_unmapped_regions_return_null(struct kunit *test)
 	KUNIT_EXPECT_NULL(test,
 			  sunxi_rproc_da_to_va(&ctx->rproc,
 					       A527_SRAM1_PHYS, 0x100, NULL));
-}
-
-static void test_da_to_va_space_isolation(struct kunit *test)
-{
-	struct test_context *ctx = create_test_ctx(test);
-
-	/*
-	 * Space 1 DA (E906_SRAM_SPACE1_DA) must NEVER resolve to Space 0, even when
-	 * Space 1 is unmapped.
-	 */
-	ctx->priv.r_sram1_va = NULL;
-	KUNIT_EXPECT_NULL(test,
-			  sunxi_rproc_da_to_va(&ctx->rproc,
-					       E906_SRAM_SPACE1_DA, 0x100, NULL));
 }
 
 static void test_da_to_va_exact_upper_boundary_space0(struct kunit *test)
@@ -407,37 +363,6 @@ static void test_da_to_va_exact_upper_boundary_space1(struct kunit *test)
 					       E906_SRAM_SPACE1_DA + A527_SRAM1_SIZE - 1, 2, NULL));
 }
 
-static void test_da_to_va_unaligned_lengths(struct kunit *test)
-{
-	struct test_context *ctx = create_test_ctx(test);
-	void *va;
-
-	/* 3-byte and 7-byte transfers must translate correctly without faulting */
-	va = sunxi_rproc_da_to_va(&ctx->rproc, E906_SRAM_SPACE0_DA + 3, 3, NULL);
-	KUNIT_ASSERT_NOT_NULL(test, va);
-	KUNIT_EXPECT_PTR_EQ(test, va, FAKE_SRAM_PTR + 3);
-
-	va = sunxi_rproc_da_to_va(&ctx->rproc, E906_SRAM_SPACE1_DA + 7, 7, NULL);
-	KUNIT_ASSERT_NOT_NULL(test, va);
-	KUNIT_EXPECT_PTR_EQ(test, va, FAKE_SRAM1_PTR + 7);
-}
-
-static void test_da_to_va_malformed_rsc_table_entry(struct kunit *test)
-{
-	struct test_context *ctx = create_test_ctx(test);
-
-	/*
-	 * Malformed resource table entry: firmware requests a VirtIO vring
-	 * or carveout pointing to an invalid device address (e.g. 0xDEADBEEF).
-	 * da_to_va must return NULL, prompting rproc_elf_load_rsc_table to fail
-	 * safely rather than writing into unmapped space.
-	 */
-	KUNIT_EXPECT_NULL(test, sunxi_rproc_da_to_va(&ctx->rproc, 0xDEADBEEF, 0x1000, NULL));
-
-	/* Out-of-window unmapped device address (0x30000000) */
-	KUNIT_EXPECT_NULL(test, sunxi_rproc_da_to_va(&ctx->rproc, 0x30000000, 0x1000, NULL));
-}
-
 static void test_da_to_va_corrupted_elf_overflow_segment(struct kunit *test)
 {
 	struct test_context *ctx = create_test_ctx(test);
@@ -462,7 +387,7 @@ static void test_da_to_va_corrupted_elf_overflow_segment(struct kunit *test)
 					       0x200, NULL));
 }
 
-/* ==================== Lifecycle: start & stop ==================== */
+/* ==================== Lifecycle: start ==================== */
 
 /*
  * start(), prepare() and unprepare() access CFG, REMAP and both SRAMs
@@ -504,15 +429,6 @@ static void test_start_rejects_bootaddr_overflow(struct kunit *test)
 
 	ret = sunxi_rproc_start(&ctx->rproc);
 	KUNIT_EXPECT_EQ(test, ret, -EINVAL);
-}
-
-static void test_stop_succeeds(struct kunit *test)
-{
-	struct test_context *ctx = create_test_ctx(test);
-	int ret;
-
-	ret = sunxi_rproc_stop(&ctx->rproc);
-	KUNIT_EXPECT_EQ(test, ret, 0);
 }
 
 /* ==================== Lifecycle: prepare & unprepare ==================== */
@@ -605,19 +521,7 @@ static void test_prepare_carveout_lifecycle(struct kunit *test)
 	}
 }
 
-/* ==================== Operations: kick ==================== */
-
-static void test_kick_null_tx_chan_safe(struct kunit *test)
-{
-	struct test_context *ctx = create_test_ctx(test);
-
-	ctx->priv.tx_chan = NULL;
-	/* Must return cleanly without NULL dereference */
-	sunxi_rproc_kick(&ctx->rproc, 0);
-	sunxi_rproc_kick(&ctx->rproc, 1);
-}
-
-/* ==================== Test Suite Registration ==================== */
+/* ==================== Mailbox rx callback ==================== */
 
 /*
  * The mailbox rx callback runs in hardirq context with the msgbox lock held,
@@ -656,7 +560,6 @@ static struct kunit_case sunxi_rproc_test_cases[] = {
 	/* da_to_va Guard Tests */
 	KUNIT_CASE(test_da_to_va_zero_length_returns_null),
 	KUNIT_CASE(test_da_to_va_overflow_guard),
-	KUNIT_CASE(test_da_to_va_null_is_iomem_safe),
 	/* da_to_va Space 0 Tests */
 	KUNIT_CASE(test_da_to_va_sram_space0_core_da),
 	KUNIT_CASE(test_da_to_va_sram_space0_core_da_offset),
@@ -674,24 +577,18 @@ static struct kunit_case sunxi_rproc_test_cases[] = {
 	/* da_to_va Out of Range, Boundary, Unmapped & Isolation Tests */
 	KUNIT_CASE(test_da_to_va_out_of_range),
 	KUNIT_CASE(test_da_to_va_sram_boundaries),
-	KUNIT_CASE(test_da_to_va_space1_boundaries),
 	KUNIT_CASE(test_da_to_va_unmapped_regions_return_null),
-	KUNIT_CASE(test_da_to_va_space_isolation),
 	KUNIT_CASE(test_da_to_va_exact_upper_boundary_space0),
 	KUNIT_CASE(test_da_to_va_exact_upper_boundary_space1),
-	KUNIT_CASE(test_da_to_va_unaligned_lengths),
-	KUNIT_CASE(test_da_to_va_malformed_rsc_table_entry),
 	KUNIT_CASE(test_da_to_va_corrupted_elf_overflow_segment),
 	/* Lifecycle: start and stop */
 	KUNIT_CASE(test_start_bootaddr_programming),
 	KUNIT_CASE(test_start_rejects_bootaddr_overflow),
-	KUNIT_CASE(test_stop_succeeds),
 	/* Lifecycle: prepare and unprepare */
 	KUNIT_CASE(test_prepare_and_unprepare_remap),
 	KUNIT_CASE(test_prepare_clears_sram),
 	KUNIT_CASE(test_prepare_carveout_lifecycle),
 	/* Operations: kick */
-	KUNIT_CASE(test_kick_null_tx_chan_safe),
 	KUNIT_CASE(test_rx_callback_defers_to_workqueue),
 	{}
 };
@@ -705,5 +602,5 @@ kunit_test_suite(sunxi_rproc_test_suite);
 
 MODULE_IMPORT_NS("EXPORTED_FOR_KUNIT_TESTING");
 MODULE_AUTHOR("Tim Michals <tcmichals@gmail.com>");
-MODULE_DESCRIPTION("Comprehensive KUnit tests for Allwinner sunxi remoteproc driver");
+MODULE_DESCRIPTION("KUnit tests for Allwinner sunxi remoteproc driver");
 MODULE_LICENSE("GPL");

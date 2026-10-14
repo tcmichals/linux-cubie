@@ -343,7 +343,9 @@ config SUN55I_MSGBOX
 
 config SUN55I_MSGBOX_KUNIT_TEST
 	tristate "KUnit tests for Allwinner sun55i msgbox" if !KUNIT_ALL_TESTS
-	depends on SUN55I_MSGBOX && KUNIT && !UML
+	# The tests use plain memory as fake MMIO, which readl()/writel()
+	# only handle like registers on the architectures below.
+	depends on SUN55I_MSGBOX && KUNIT && (ARM64 || COMPILE_TEST) && !UML
 	default KUNIT_ALL_TESTS
 	help
 	  KUnit tests for the Allwinner sun55i-msgbox driver. They run the
