@@ -51,7 +51,6 @@ const struct sunxi_rproc_cfg sun55i_riscv_cfg = {
 	.name = "XuanTie E906 RISC-V",
 	.att = sun55i_rproc_att,
 	.att_size = ARRAY_SIZE(sun55i_rproc_att),
-	.has_remap_reg = true,
 	.boot_reg_offset = E906_STA_ADD_REG,
 };
 EXPORT_SYMBOL_IF_KUNIT(sun55i_riscv_cfg);
@@ -94,9 +93,9 @@ VISIBLE_IF_KUNIT
 int sunxi_rproc_prepare(struct rproc *rproc)
 {
 	struct sunxi_rproc *priv = rproc->priv;
-	const struct sunxi_rproc_cfg *cfg = priv->cfg;
 	struct rproc_mem_entry *mem[SUNXI_RPROC_MAX_RMEM];
 	unsigned int i;
+	u32 remap_val;
 	int ret;
 
 	for (i = 0; i < priv->num_rmem; i++) {
@@ -153,27 +152,16 @@ int sunxi_rproc_prepare(struct rproc *rproc)
 		goto err_disable_sram_clk;
 	}
 
-	/*
-	 * 4. Enable SRAMA3_2 for MCU_SYS (RISC-V) via REMAP register bit 1.
-	 */
-	if (cfg->has_remap_reg && priv->remap_va) {
-		u32 remap_val = readl(priv->remap_va);
-
-		remap_val |= SUNXI_REMAP_SRAMA3_2_BIT;
-		writel(remap_val, priv->remap_va);
-		readl(priv->remap_va);
-		dev_dbg(priv->dev, "REMAP set to 0x%08x (SRAMA3_2 enabled)\n",
-			remap_val);
-	}
+	/* 4. Switch SRAM A3_2 (SRAM space 1) to the RISC-V core: REMAP bit 1 */
+	remap_val = readl(priv->remap_va) | SUNXI_REMAP_SRAMA3_2_BIT;
+	writel(remap_val, priv->remap_va);
+	readl(priv->remap_va);
 
 	/*
 	 * 5. Cleanly clear Dedicated Local SRAM and Switchable SRAM.
 	 */
-	if (priv->r_sram_va && priv->r_sram_size)
-		memset_io(priv->r_sram_va, 0, priv->r_sram_size);
-
-	if (priv->r_sram1_va && priv->r_sram1_size)
-		memset_io(priv->r_sram1_va, 0, priv->r_sram1_size);
+	memset_io(priv->r_sram_va, 0, priv->r_sram_size);
+	memset_io(priv->r_sram1_va, 0, priv->r_sram1_size);
 
 	/* rproc_resource_cleanup() frees rproc->carveouts after every run */
 	for (i = 0; i < priv->num_rmem; i++)
@@ -202,16 +190,9 @@ VISIBLE_IF_KUNIT
 int sunxi_rproc_unprepare(struct rproc *rproc)
 {
 	struct sunxi_rproc *priv = rproc->priv;
-	const struct sunxi_rproc_cfg *cfg = priv->cfg;
 
-	/* Symmetrical CCU unwinding */
-	if (cfg->has_remap_reg && priv->remap_va) {
-		u32 remap_val = readl(priv->remap_va);
-
-		remap_val &= ~SUNXI_REMAP_SRAMA3_2_BIT;
-		writel(remap_val, priv->remap_va);
-		readl(priv->remap_va);
-	}
+	writel(readl(priv->remap_va) & ~SUNXI_REMAP_SRAMA3_2_BIT, priv->remap_va);
+	readl(priv->remap_va);
 
 	clk_disable_unprepare(priv->clk_core);
 	clk_disable_unprepare(priv->clk_sram);
@@ -239,11 +220,9 @@ int sunxi_rproc_start(struct rproc *rproc)
 	if (rproc->bootaddr > U32_MAX)
 		return -EINVAL;
 
-	if (priv->cfg_va) {
-		writel((u32)rproc->bootaddr, priv->cfg_va + cfg->boot_reg_offset);
-		readl(priv->cfg_va + cfg->boot_reg_offset);
-		dev_dbg(priv->dev, "STA_ADD set to 0x%08x\n", (u32)rproc->bootaddr);
-	}
+	/* Program the reset vector and flush it before releasing the core */
+	writel((u32)rproc->bootaddr, priv->cfg_va + cfg->boot_reg_offset);
+	readl(priv->cfg_va + cfg->boot_reg_offset);
 
 	ret = reset_control_deassert(priv->rst_core);
 	if (ret) {
@@ -442,49 +421,34 @@ static int sunxi_rproc_register_mem(struct platform_device *pdev, struct rproc *
 	struct sunxi_rproc *priv = rproc->priv;
 	struct resource *res;
 
-	/* 1. Map Optional RISC-V CFG Block ("cfg") */
-	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "cfg");
-	if (res) {
-		priv->cfg_phys = res->start;
-		priv->cfg_va = devm_ioremap(dev, res->start, resource_size(res));
-		if (!priv->cfg_va)
-			dev_warn(dev, "failed to map 'cfg' registers\n");
-	}
+	priv->cfg_va = devm_platform_ioremap_resource_byname(pdev, "cfg");
+	if (IS_ERR(priv->cfg_va))
+		return dev_err_probe(dev, PTR_ERR(priv->cfg_va), "failed to map 'cfg'\n");
 
-	/* 2. Map Dedicated RISC-V Local SRAM Space 0 ("r_sram") */
 	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "r_sram");
-	if (res) {
-		priv->r_sram_phys = res->start;
-		priv->r_sram_size = resource_size(res);
-		priv->r_sram_va = devm_ioremap_wc(dev, res->start, resource_size(res));
-		if (!priv->r_sram_va)
-			return -ENOMEM;
-	}
+	priv->r_sram_va = devm_ioremap_resource_wc(dev, res);
+	if (IS_ERR(priv->r_sram_va))
+		return dev_err_probe(dev, PTR_ERR(priv->r_sram_va), "failed to map 'r_sram'\n");
+	priv->r_sram_phys = res->start;
+	priv->r_sram_size = resource_size(res);
 
-	/* 3. Map Switchable RISC-V Local SRAM Space 1 ("r_sram1") - Optional */
 	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "r_sram1");
-	if (res) {
-		priv->r_sram1_phys = res->start;
-		priv->r_sram1_size = resource_size(res);
-		priv->r_sram1_va = devm_ioremap_wc(dev, res->start, resource_size(res));
-		if (!priv->r_sram1_va)
-			dev_warn(dev, "failed to map 'r_sram1' resource\n");
-	}
+	priv->r_sram1_va = devm_ioremap_resource_wc(dev, res);
+	if (IS_ERR(priv->r_sram1_va))
+		return dev_err_probe(dev, PTR_ERR(priv->r_sram1_va), "failed to map 'r_sram1'\n");
+	priv->r_sram1_phys = res->start;
+	priv->r_sram1_size = resource_size(res);
 
-	/* 4. Map Remap Control Register ("remap") - Optional */
+	/*
+	 * The remap register sits in the PRCM block and is shared with the DSP,
+	 * so map it without claiming the region.
+	 */
 	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "remap");
-	if (res) {
-		priv->remap_phys = res->start;
-		priv->remap_va = devm_ioremap(dev, res->start, resource_size(res));
-		if (!priv->remap_va)
-			dev_warn(dev, "failed to map 'remap' register\n");
-	}
-
-	dev_dbg(dev, "Memory resources: r_sram=%s, r_sram1=%s, remap=%s, cfg=%s\n",
-		priv->r_sram_va ? "yes" : "no",
-		priv->r_sram1_va ? "yes" : "no",
-		priv->remap_va ? "yes" : "no",
-		priv->cfg_va ? "yes" : "no");
+	if (!res)
+		return dev_err_probe(dev, -EINVAL, "missing 'remap' register\n");
+	priv->remap_va = devm_ioremap(dev, res->start, resource_size(res));
+	if (!priv->remap_va)
+		return dev_err_probe(dev, -ENOMEM, "failed to map 'remap'\n");
 
 	return 0;
 }

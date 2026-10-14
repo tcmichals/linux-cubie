@@ -471,12 +471,27 @@ static void test_da_to_va_corrupted_elf_overflow_segment(struct kunit *test)
 
 /* ==================== Lifecycle: start & stop ==================== */
 
+/*
+ * start(), prepare() and unprepare() access CFG, REMAP and both SRAMs
+ * unconditionally (all four are required resources), so point them at real
+ * buffers instead of the fake translation-test pointers.
+ */
+static void use_mmio_mocks(struct test_context *ctx)
+{
+	ctx->priv.cfg_va = (void __iomem *)ctx->mock_cfg_regs;
+	ctx->priv.remap_va = (void __iomem *)&ctx->mock_remap_reg;
+	ctx->priv.r_sram_va = (void __iomem *)ctx->mock_sram_buf;
+	ctx->priv.r_sram_size = sizeof(ctx->mock_sram_buf);
+	ctx->priv.r_sram1_va = (void __iomem *)ctx->mock_sram1_buf;
+	ctx->priv.r_sram1_size = sizeof(ctx->mock_sram1_buf);
+}
+
 static void test_start_bootaddr_programming(struct kunit *test)
 {
 	struct test_context *ctx = create_test_ctx(test);
 	int ret;
 
-	ctx->priv.cfg_va = (void __iomem *)ctx->mock_cfg_regs;
+	use_mmio_mocks(ctx);
 	ctx->rproc.bootaddr = 0x40014000;
 
 	ret = sunxi_rproc_start(&ctx->rproc);
@@ -514,14 +529,8 @@ static void test_prepare_and_unprepare_remap(struct kunit *test)
 	struct test_context *ctx = create_test_ctx(test);
 	int ret;
 
-	ctx->priv.remap_va = (void __iomem *)&ctx->mock_remap_reg;
+	use_mmio_mocks(ctx);
 	ctx->mock_remap_reg = 0;
-
-	/* Provide real buffers for SRAM clearing to prevent faulting on fake VA */
-	ctx->priv.r_sram_va = (void __iomem *)ctx->mock_sram_buf;
-	ctx->priv.r_sram_size = sizeof(ctx->mock_sram_buf);
-	ctx->priv.r_sram1_va = (void __iomem *)ctx->mock_sram1_buf;
-	ctx->priv.r_sram1_size = sizeof(ctx->mock_sram1_buf);
 
 	/* prepare() should set SUNXI_REMAP_SRAMA3_2_BIT (bit 1) */
 	ret = sunxi_rproc_prepare(&ctx->rproc);
@@ -540,14 +549,9 @@ static void test_prepare_clears_sram(struct kunit *test)
 	struct test_context *ctx = create_test_ctx(test);
 	int i, ret;
 
+	use_mmio_mocks(ctx);
 	memset(ctx->mock_sram_buf, 0xAA, sizeof(ctx->mock_sram_buf));
 	memset(ctx->mock_sram1_buf, 0x55, sizeof(ctx->mock_sram1_buf));
-
-	ctx->priv.r_sram_va = (void __iomem *)ctx->mock_sram_buf;
-	ctx->priv.r_sram_size = sizeof(ctx->mock_sram_buf);
-
-	ctx->priv.r_sram1_va = (void __iomem *)ctx->mock_sram1_buf;
-	ctx->priv.r_sram1_size = sizeof(ctx->mock_sram1_buf);
 
 	ret = sunxi_rproc_prepare(&ctx->rproc);
 	KUNIT_EXPECT_EQ(test, ret, 0);
@@ -565,6 +569,8 @@ static void test_prepare_carveout_lifecycle(struct kunit *test)
 	struct test_context *ctx = create_test_ctx(test);
 	struct rproc_mem_entry *entry, *tmp;
 	int count, ret;
+
+	use_mmio_mocks(ctx);
 
 	/* Setup a mock reserved memory entry */
 	ctx->priv.num_rmem = 1;

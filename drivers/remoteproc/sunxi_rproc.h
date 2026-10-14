@@ -59,7 +59,6 @@ struct sunxi_rproc_cfg {
 	const char *name;
 	const struct sunxi_rproc_att *att;
 	size_t att_size;
-	bool has_remap_reg;
 	u32 boot_reg_offset;
 };
 
@@ -78,10 +77,8 @@ struct sunxi_rproc {
 
 	/* Hardware Memory Windows (Dedicated SRAM, Switchable SRAM, Remap) */
 	void __iomem *cfg_va;
-	phys_addr_t cfg_phys;
 
 	void __iomem *remap_va;
-	phys_addr_t remap_phys;
 
 	void __iomem *r_sram_va;
 	phys_addr_t r_sram_phys;
