@@ -90,14 +90,8 @@ struct sunxi_rproc {
 	phys_addr_t r_sram1_phys;
 	size_t r_sram1_size;
 
-	void *dram_va;
-	phys_addr_t dram_phys;
-	size_t dram_size;
 
 	/* Trace / DDR Reserved Memory Window */
-	void *trace_va;
-	phys_addr_t trace_phys;
-	size_t trace_size;
 
 	/* Reserved Memory & Mailbox State */
 	struct sunxi_rproc_rmem rmem[SUNXI_RPROC_MAX_RMEM];
@@ -122,6 +116,7 @@ int sunxi_rproc_unprepare(struct rproc *rproc);
 int sunxi_rproc_start(struct rproc *rproc);
 int sunxi_rproc_stop(struct rproc *rproc);
 void sunxi_rproc_kick(struct rproc *rproc, int vqid);
+void sunxi_rproc_mb_rx_callback(struct mbox_client *cl, void *data);
 void *sunxi_rproc_da_to_va(struct rproc *rproc, u64 da, size_t len, bool *is_iomem);
 #endif
 

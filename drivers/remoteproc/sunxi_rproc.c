@@ -63,12 +63,14 @@ static void sunxi_rproc_vq_work(struct work_struct *work)
  * Mailbox rx callbacks run in atomic context, but the virtio/rpmsg receive
  * path takes mutexes, so the vring notifications are handled from a work item.
  */
-static void sunxi_rproc_mb_rx_callback(struct mbox_client *cl, void *data)
+VISIBLE_IF_KUNIT
+void sunxi_rproc_mb_rx_callback(struct mbox_client *cl, void *data)
 {
 	struct sunxi_rproc *priv = container_of(cl, struct sunxi_rproc, cl);
 
 	queue_work(priv->workqueue, &priv->vq_work);
 }
+EXPORT_SYMBOL_IF_KUNIT(sunxi_rproc_mb_rx_callback);
 
 static irqreturn_t sunxi_rproc_crash_handler(int irq, void *data)
 {
@@ -339,53 +341,12 @@ void *sunxi_rproc_da_to_va(struct rproc *rproc, u64 da, size_t len, bool *is_iom
 		    (sys + len) <= (priv->r_sram1_phys + priv->r_sram1_size))
 			return (__force void *)(priv->r_sram1_va + (sys - priv->r_sram1_phys));
 
-		if (priv->dram_va && sys >= priv->dram_phys &&
-		    (sys + len) <= (priv->dram_phys + priv->dram_size))
-			return (__force void *)(priv->dram_va + (sys - priv->dram_phys));
-
-		if (priv->trace_va && sys >= priv->trace_phys &&
-		    (sys + len) <= (priv->trace_phys + priv->trace_size))
-			return (__force void *)(priv->trace_va + (sys - priv->trace_phys));
-
 		return NULL;
 	}
 
 	/*
-	 * 2. Device Tree Memory Regions (Trace buffer, DRAM carveout, or
-	 * dynamically-assigned SRAM regions whose host PA is supplied via DT).
-	 */
-	if (priv->trace_va && da >= priv->trace_phys &&
-	    (da + len) <= (priv->trace_phys + priv->trace_size)) {
-		if (is_iomem)
-			*is_iomem = false;
-		return (__force void *)(priv->trace_va + (da - priv->trace_phys));
-	}
-
-	if (priv->dram_va && da >= priv->dram_phys &&
-	    (da + len) <= (priv->dram_phys + priv->dram_size)) {
-		if (is_iomem)
-			*is_iomem = false;
-		return (__force void *)(priv->dram_va + (da - priv->dram_phys));
-	}
-
-	if (priv->r_sram_va && da >= priv->r_sram_phys &&
-	    (da + len) <= (priv->r_sram_phys + priv->r_sram_size)) {
-		if (is_iomem)
-			*is_iomem = true;
-		return (__force void *)(priv->r_sram_va + (da - priv->r_sram_phys));
-	}
-
-	if (priv->r_sram1_va && da >= priv->r_sram1_phys &&
-	    (da + len) <= (priv->r_sram1_phys + priv->r_sram1_size)) {
-		if (is_iomem)
-			*is_iomem = true;
-		return (__force void *)(priv->r_sram1_va + (da - priv->r_sram1_phys));
-	}
-
-	/*
-	 * Return NULL to delegate all DRAM carveouts (vrings, buffers,
-	 * code/data placed in DDR) directly to the remoteproc core's
-	 * internal carveout table.
+	 * Everything else (DRAM firmware, trace, vrings and buffers) is a
+	 * registered carveout: rproc_da_to_va() looks it up after this returns NULL.
 	 */
 	return NULL;
 }
@@ -507,16 +468,6 @@ static int sunxi_rproc_parse_memory_regions(struct sunxi_rproc *priv)
 			if (IS_ERR(rmem->va))
 				return dev_err_probe(dev, PTR_ERR(rmem->va),
 						     "failed to map %s\n", rmem->name);
-		}
-
-		if (!strcmp(rmem->name, "dram")) {
-			priv->dram_va = rmem->va;
-			priv->dram_phys = rmem->phys;
-			priv->dram_size = rmem->size;
-		} else if (!strcmp(rmem->name, "trace")) {
-			priv->trace_va = rmem->va;
-			priv->trace_phys = rmem->phys;
-			priv->trace_size = rmem->size;
 		}
 
 		priv->num_rmem++;
