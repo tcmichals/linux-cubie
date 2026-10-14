@@ -75,6 +75,7 @@ struct sunxi_rproc {
 	struct reset_control *rst_cfg;
 	struct reset_control *rst_core;
 	struct reset_control *rst_sram;
+	struct reset_control *rst_debug;
 
 	/* Hardware Memory Windows (Dedicated SRAM, Switchable SRAM, Remap) */
 	void __iomem *cfg_va;

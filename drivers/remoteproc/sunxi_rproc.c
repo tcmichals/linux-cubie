@@ -116,7 +116,7 @@ int sunxi_rproc_prepare(struct rproc *rproc)
 		goto err_free_mem;
 	}
 
-	/* 1. Deassert configuration & SRAM bus resets */
+	/* 1. Deassert the configuration, SRAM and debug resets (core stays in reset) */
 	ret = reset_control_deassert(priv->rst_cfg);
 	if (ret) {
 		dev_err(priv->dev, "failed to deassert cfg reset: %d\n", ret);
@@ -129,11 +129,17 @@ int sunxi_rproc_prepare(struct rproc *rproc)
 		goto err_assert_cfg;
 	}
 
+	ret = reset_control_deassert(priv->rst_debug);
+	if (ret) {
+		dev_err(priv->dev, "failed to deassert debug reset: %d\n", ret);
+		goto err_assert_sram;
+	}
+
 	/* 2. Enable interconnect bus and SRAM clocks */
 	ret = clk_prepare_enable(priv->clk_bus);
 	if (ret) {
 		dev_err(priv->dev, "failed to enable bus clock: %d\n", ret);
-		goto err_assert_sram;
+		goto err_assert_debug;
 	}
 
 	ret = clk_prepare_enable(priv->clk_sram);
@@ -170,6 +176,8 @@ err_disable_sram_clk:
 	clk_disable_unprepare(priv->clk_sram);
 err_disable_bus:
 	clk_disable_unprepare(priv->clk_bus);
+err_assert_debug:
+	reset_control_assert(priv->rst_debug);
 err_assert_sram:
 	reset_control_assert(priv->rst_sram);
 err_assert_cfg:
@@ -195,6 +203,7 @@ int sunxi_rproc_unprepare(struct rproc *rproc)
 	clk_disable_unprepare(priv->clk_sram);
 	clk_disable_unprepare(priv->clk_bus);
 
+	reset_control_assert(priv->rst_debug);
 	reset_control_assert(priv->rst_sram);
 	reset_control_assert(priv->rst_cfg);
 
@@ -579,7 +588,7 @@ static int sunxi_rproc_probe(struct platform_device *pdev)
 	if (IS_ERR(priv->clk_core))
 		return dev_err_probe(dev, PTR_ERR(priv->clk_core), "failed to get 'core' clock\n");
 
-	priv->clk_sram = devm_clk_get_optional(dev, "sram");
+	priv->clk_sram = devm_clk_get(dev, "sram");
 	if (IS_ERR(priv->clk_sram))
 		return dev_err_probe(dev, PTR_ERR(priv->clk_sram), "failed to get 'sram' clock\n");
 
@@ -592,9 +601,14 @@ static int sunxi_rproc_probe(struct platform_device *pdev)
 	if (IS_ERR(priv->rst_core))
 		return dev_err_probe(dev, PTR_ERR(priv->rst_core), "failed to get 'core' reset\n");
 
-	priv->rst_sram = devm_reset_control_get_optional_exclusive(dev, "sram");
+	priv->rst_sram = devm_reset_control_get_exclusive(dev, "sram");
 	if (IS_ERR(priv->rst_sram))
 		return dev_err_probe(dev, PTR_ERR(priv->rst_sram), "failed to get 'sram' reset\n");
+
+	priv->rst_debug = devm_reset_control_get_exclusive(dev, "debug");
+	if (IS_ERR(priv->rst_debug))
+		return dev_err_probe(dev, PTR_ERR(priv->rst_debug),
+				     "failed to get 'debug' reset\n");
 
 	/* 3. Memory Windows (TCM, SRAM, CFG) */
 	ret = sunxi_rproc_register_mem(pdev, rproc);
