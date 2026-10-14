@@ -250,7 +250,7 @@ static void sun55i_msgbox_assert_reset(void *data)
 static int sun55i_msgbox_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
-	struct clk_bulk_data *clks;
+	struct clk *clk;
 	struct reset_control *rst;
 	struct mbox_chan *chans;
 	struct sun55i_msgbox *mbox;
@@ -276,18 +276,21 @@ static int sun55i_msgbox_probe(struct platform_device *pdev)
 					     "failed to map resource %d\n", i);
 	}
 
-	/* Every port's register bank has its own bus clock and reset */
-	ret = devm_clk_bulk_get_all_enabled(dev, &clks);
-	if (ret < 0)
-		return dev_err_probe(dev, ret, "failed to enable clocks\n");
+	/*
+	 * Only the host bank's clock and reset belong to Linux. The remote
+	 * banks are clocked and reset from their own processors' domains.
+	 */
+	clk = devm_clk_get_enabled(dev, NULL);
+	if (IS_ERR(clk))
+		return dev_err_probe(dev, PTR_ERR(clk), "failed to enable clock\n");
 
-	rst = devm_reset_control_array_get_shared(dev);
+	rst = devm_reset_control_get_shared(dev, NULL);
 	if (IS_ERR(rst))
-		return dev_err_probe(dev, PTR_ERR(rst), "failed to get resets\n");
+		return dev_err_probe(dev, PTR_ERR(rst), "failed to get reset\n");
 
 	ret = reset_control_deassert(rst);
 	if (ret)
-		return dev_err_probe(dev, ret, "failed to deassert resets\n");
+		return dev_err_probe(dev, ret, "failed to deassert reset\n");
 
 	ret = devm_add_action_or_reset(dev, sun55i_msgbox_assert_reset, rst);
 	if (ret)
