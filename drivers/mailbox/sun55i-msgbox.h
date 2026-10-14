@@ -2,7 +2,7 @@
 #ifndef _SUN55I_MSGBOX_H_
 #define _SUN55I_MSGBOX_H_
 
-#include <linux/bitfield.h>
+#include <linux/bits.h>
 #include <linux/bits.h>
 #include <linux/interrupt.h>
 #include <linux/mailbox_controller.h>

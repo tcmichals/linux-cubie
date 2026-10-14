@@ -333,23 +333,22 @@ config SUN6I_MSGBOX
 	  between the application CPUs and the power management coprocessor.
 
 config SUN55I_MSGBOX
-	tristate "Allwinner sun55i/sun60i 4-port Message Box"
+	tristate "Allwinner A523 Message Box"
 	depends on ARCH_SUNXI || COMPILE_TEST
-	default ARCH_SUNXI
 	help
-	  Mailbox implementation for the 4-port hardware message box present in
-	  Allwinner A523/A527/T527 (sun55i) and A733 (sun60i) SoCs. This mailbox
-	  provides 12 hardware FIFO channels for communication between the
-	  Cortex-A55 host, CPUS, HiFi4 DSP, and XuanTie E906 RISC-V coprocessors.
+	  Mailbox driver for the message box in Allwinner A523, A527 and T527
+	  (sun55i) SoCs. It provides 12 hardware FIFO channels between the
+	  Cortex-A55 host and the CPUS, HiFi4 DSP and XuanTie E906 RISC-V
+	  processors.
 
 config SUN55I_MSGBOX_KUNIT_TEST
 	tristate "KUnit tests for Allwinner sun55i msgbox" if !KUNIT_ALL_TESTS
 	depends on SUN55I_MSGBOX && KUNIT && !UML
 	default KUNIT_ALL_TESTS
 	help
-	  KUnit tests for the Allwinner sun55i-msgbox driver, covering
-	  channel routing table entries, register offset macros, and IRQ bit
-	  positions for communication with CPUS, HiFi4 DSP, and XuanTie RISC-V.
+	  KUnit tests for the Allwinner sun55i-msgbox driver. They run the
+	  channel operations (send, peek, last_tx_done, startup, shutdown)
+	  against a mock register bank.
 	  Say Y here to run these tests during boot or via kunit.py.
 
 config SPRD_MBOX

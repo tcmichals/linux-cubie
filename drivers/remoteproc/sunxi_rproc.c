@@ -7,7 +7,7 @@
  * Based on vendor sunxi-rproc driver by Allwinner Technology Co., Ltd.
  *
  * CCU-integrated remoteproc driver for XuanTie RISC-V co-processors on
- * Allwinner SoCs (T527/A527/A523: E906) supporting TCM, SRAM, and DRAM.
+ * Allwinner SoCs (T527/A527/A523: E906), running from on-chip SRAM and DRAM.
  */
 
 #include <kunit/visibility.h>
@@ -19,7 +19,6 @@
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/of_reserved_mem.h>
-#include <linux/of_address.h>
 #include <linux/platform_device.h>
 #include <linux/pm_domain.h>
 #include <linux/pm_runtime.h>
@@ -564,7 +563,7 @@ static int sunxi_rproc_probe(struct platform_device *pdev)
 	priv->dev = dev;
 	priv->cfg = of_device_get_match_data(dev);
 	if (!priv->cfg)
-		priv->cfg = &sun55i_riscv_cfg;
+		return -ENODEV;
 
 	/*
 	 * The core and its SRAM sit in two PPU power domains. With more than one

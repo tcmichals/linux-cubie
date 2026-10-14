@@ -7,7 +7,6 @@
  */
 
 #include <kunit/visibility.h>
-#include <linux/bitfield.h>
 #include <linux/clk.h>
 #include <linux/device.h>
 #include <linux/err.h>
@@ -69,10 +68,8 @@ irqreturn_t sun55i_msgbox_irq(int irq, void *dev_id)
 	int i, local_n, p, chan_idx;
 
 	/*
-	 * Guard against concurrent multi-IRQ execution across CPUs.
-	 * If multiple cores interrupt simultaneously, holding mbox->lock prevents
-	 * a TOCTOU race where multiple CPUs attempt to drain the same FIFO,
-	 * causing hardware underflow.
+	 * startup()/shutdown() change the IRQ enable bits under the same lock,
+	 * so a channel cannot be torn down while its FIFO is being drained.
 	 */
 	spin_lock_irqsave(&mbox->lock, flags);
 
