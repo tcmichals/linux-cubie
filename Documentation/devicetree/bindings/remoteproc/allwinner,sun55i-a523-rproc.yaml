@@ -62,14 +62,11 @@ properties:
       - const: debug
 
   mboxes:
-    items:
-      - description: Receive channel, RISC-V core to host
-      - description: Transmit channel, host to RISC-V core
-
-  mbox-names:
-    items:
-      - const: rx
-      - const: tx
+    description:
+      Message box channel to the RISC-V core. Each channel has a FIFO in
+      each direction, carrying the host's vring kicks and the core's
+      notifications.
+    maxItems: 1
 
   firmware-name:
     maxItems: 1
@@ -105,10 +102,6 @@ properties:
     items:
       - const: riscv
       - const: sram
-
-dependencies:
-  mboxes: [mbox-names]
-  mbox-names: [mboxes]
 
 required:
   - compatible
@@ -147,7 +140,6 @@ examples:
         reset-names = "cfg", "core", "sram", "debug";
         power-domains = <&ppu PD_RISCV>, <&ppu PD_SRAM>;
         power-domain-names = "riscv", "sram";
-        mboxes = <&msgbox 8>, <&msgbox 9>;
-        mbox-names = "rx", "tx";
+        mboxes = <&msgbox 9>;
         firmware-name = "riscv-firmware.elf";
     };
