@@ -16,7 +16,9 @@ description:
   own register bank holding 8-entry receive FIFOs for messages from the
   other three, and a sender writes into the receiver's bank. The host side
   therefore uses all four banks and exposes 12 channels, 4 per remote
-  processor.
+  processor. Only the host bank's bus clock and reset are controlled from
+  the host; the remote banks are clocked and reset from their own
+  processors' domains.
 
 properties:
   compatible:
@@ -37,18 +39,12 @@ properties:
       - const: rv
 
   clocks:
-    items:
-      - description: Bus clock of the Cortex-A55 host bank
-      - description: Bus clock of the HiFi4 DSP bank
-      - description: Bus clock of the CPUS bank
-      - description: Bus clock of the XuanTie RISC-V bank
+    maxItems: 1
+    description: Bus clock of the Cortex-A55 host bank
 
   resets:
-    items:
-      - description: Reset of the Cortex-A55 host bank
-      - description: Reset of the HiFi4 DSP bank
-      - description: Reset of the CPUS bank
-      - description: Reset of the XuanTie RISC-V bank
+    maxItems: 1
+    description: Reset of the Cortex-A55 host bank
 
   interrupts:
     minItems: 1
@@ -86,12 +82,8 @@ additionalProperties: false
 examples:
   - |
     #include <dt-bindings/clock/sun55i-a523-ccu.h>
-    #include <dt-bindings/clock/sun55i-a523-mcu-ccu.h>
-    #include <dt-bindings/clock/sun55i-a523-r-ccu.h>
     #include <dt-bindings/interrupt-controller/arm-gic.h>
     #include <dt-bindings/reset/sun55i-a523-ccu.h>
-    #include <dt-bindings/reset/sun55i-a523-mcu-ccu.h>
-    #include <dt-bindings/reset/sun55i-a523-r-ccu.h>
 
     mailbox@3003000 {
         compatible = "allwinner,sun55i-a523-msgbox";
@@ -100,14 +92,8 @@ examples:
               <0x07094000 0x1000>,
               <0x07136000 0x1000>;
         reg-names = "arm", "dsp", "cpus", "rv";
-        clocks = <&ccu CLK_BUS_MSGBOX>,
-                 <&mcu_ccu CLK_BUS_MCU_DSP_MSGBOX>,
-                 <&r_ccu CLK_BUS_R_MSGBOX>,
-                 <&mcu_ccu CLK_BUS_MCU_RISCV_MSGBOX>;
-        resets = <&ccu RST_BUS_MSGBOX>,
-                 <&mcu_ccu RST_BUS_MCU_DSP_MSGBOX>,
-                 <&r_ccu RST_BUS_R_MSGBOX>,
-                 <&mcu_ccu RST_BUS_MCU_RISCV_MSGBOX>;
+        clocks = <&ccu CLK_BUS_MSGBOX>;
+        resets = <&ccu RST_BUS_MSGBOX>;
         interrupts = <GIC_SPI 0 IRQ_TYPE_LEVEL_HIGH>,
                      <GIC_SPI 1 IRQ_TYPE_LEVEL_HIGH>,
                      <GIC_SPI 181 IRQ_TYPE_LEVEL_HIGH>,
