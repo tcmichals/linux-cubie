@@ -98,6 +98,16 @@ properties:
     items:
       - const: crash
 
+  power-domains:
+    items:
+      - description: RISC-V core power domain
+      - description: SRAM power domain
+
+  power-domain-names:
+    items:
+      - const: riscv
+      - const: sram
+
 dependencies:
   mboxes: [mbox-names]
   mbox-names: [mboxes]
@@ -110,12 +120,15 @@ required:
   - clock-names
   - resets
   - reset-names
+  - power-domains
+  - power-domain-names
 
 additionalProperties: false
 
 examples:
   - |
     #include <dt-bindings/clock/sun55i-a523-mcu-ccu.h>
+    #include <dt-bindings/power/allwinner,sun55i-a523-ppu.h>
     #include <dt-bindings/reset/sun55i-a523-mcu-ccu.h>
 
     remoteproc@7130000 {
@@ -133,6 +146,8 @@ examples:
                  <&mcu_ccu RST_BUS_MCU_RISCV_CORE>,
                  <&mcu_ccu RST_BUS_MCU_PUBSRAM>;
         reset-names = "cfg", "core", "sram";
+        power-domains = <&ppu PD_RISCV>, <&ppu PD_SRAM>;
+        power-domain-names = "riscv", "sram";
         mboxes = <&msgbox 8>, <&msgbox 9>;
         mbox-names = "rx", "tx";
         firmware-name = "riscv-firmware.elf";
