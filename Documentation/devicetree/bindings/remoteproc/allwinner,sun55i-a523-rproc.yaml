@@ -36,32 +36,30 @@ properties:
       - const: remap
 
   clocks:
-    minItems: 2
     items:
       - description: Configuration block bus clock
       - description: RISC-V core clock
       - description: MCU public SRAM bus clock
 
   clock-names:
-    minItems: 2
     items:
       - const: bus
       - const: core
       - const: sram
 
   resets:
-    minItems: 2
     items:
       - description: Configuration block reset
       - description: RISC-V core reset
       - description: MCU public SRAM reset
+      - description: RISC-V debug module reset
 
   reset-names:
-    minItems: 2
     items:
       - const: cfg
       - const: core
       - const: sram
+      - const: debug
 
   mboxes:
     items:
@@ -144,8 +142,9 @@ examples:
         clock-names = "bus", "core", "sram";
         resets = <&mcu_ccu RST_BUS_MCU_RISCV_CFG>,
                  <&mcu_ccu RST_BUS_MCU_RISCV_CORE>,
-                 <&mcu_ccu RST_BUS_MCU_PUBSRAM>;
-        reset-names = "cfg", "core", "sram";
+                 <&mcu_ccu RST_BUS_MCU_PUBSRAM>,
+                 <&mcu_ccu RST_BUS_MCU_RISCV_DEBUG>;
+        reset-names = "cfg", "core", "sram", "debug";
         power-domains = <&ppu PD_RISCV>, <&ppu PD_SRAM>;
         power-domain-names = "riscv", "sram";
         mboxes = <&msgbox 8>, <&msgbox 9>;
