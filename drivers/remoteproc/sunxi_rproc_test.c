@@ -16,8 +16,10 @@
  * Copyright (C) 2026 Tim Michals <tcmichals@gmail.com>
  */
 
+#include <kunit/device.h>
 #include <kunit/test.h>
 #include <linux/io.h>
+#include <linux/pm_runtime.h>
 #include <linux/remoteproc.h>
 #include <linux/slab.h>
 #include "remoteproc_internal.h"
@@ -63,6 +65,12 @@ static struct test_context *create_test_ctx(struct kunit *test)
 	ctx->rproc.priv = &ctx->priv;
 	ctx->priv.rproc = &ctx->rproc;
 	INIT_LIST_HEAD(&ctx->rproc.carveouts);
+
+	/* prepare()/unprepare() take a runtime PM reference on the device */
+	ctx->priv.dev = kunit_device_register(test, "sunxi-rproc-test");
+	KUNIT_ASSERT_NOT_ERR_OR_NULL(test, ctx->priv.dev);
+	pm_runtime_no_callbacks(ctx->priv.dev);
+	KUNIT_ASSERT_EQ(test, devm_pm_runtime_enable(ctx->priv.dev), 0);
 
 	ctx->priv.r_sram_va = FAKE_SRAM_VA;
 	ctx->priv.r_sram_phys = A527_SRAM_PHYS;

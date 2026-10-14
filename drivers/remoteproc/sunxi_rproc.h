@@ -6,6 +6,7 @@
 #include <linux/interrupt.h>
 #include <linux/io.h>
 #include <linux/mailbox_client.h>
+#include <linux/pm_domain.h>
 #include <linux/remoteproc.h>
 #include <linux/reset.h>
 #include <linux/workqueue.h>
@@ -110,6 +111,7 @@ struct sunxi_rproc {
 	struct mbox_chan *rx_chan;
 	struct workqueue_struct *workqueue;
 	struct work_struct vq_work;
+	struct dev_pm_domain_list *pd_list;
 };
 
 #if IS_ENABLED(CONFIG_KUNIT)

@@ -21,6 +21,8 @@
 #include <linux/of_reserved_mem.h>
 #include <linux/of_address.h>
 #include <linux/platform_device.h>
+#include <linux/pm_domain.h>
+#include <linux/pm_runtime.h>
 #include <linux/remoteproc.h>
 #include <linux/reset.h>
 #include <linux/slab.h>
@@ -111,11 +113,18 @@ int sunxi_rproc_prepare(struct rproc *rproc)
 		mem[i]->is_iomem = rmem->is_iomem;
 	}
 
+	/* 0. Power up the RISC-V and SRAM power domains */
+	ret = pm_runtime_resume_and_get(priv->dev);
+	if (ret) {
+		dev_err(priv->dev, "failed to power up: %d\n", ret);
+		goto err_free_mem;
+	}
+
 	/* 1. Deassert configuration & SRAM bus resets */
 	ret = reset_control_deassert(priv->rst_cfg);
 	if (ret) {
 		dev_err(priv->dev, "failed to deassert cfg reset: %d\n", ret);
-		goto err_free_mem;
+		goto err_pm_put;
 	}
 
 	ret = reset_control_deassert(priv->rst_sram);
@@ -180,6 +189,8 @@ err_assert_sram:
 	reset_control_assert(priv->rst_sram);
 err_assert_cfg:
 	reset_control_assert(priv->rst_cfg);
+err_pm_put:
+	pm_runtime_put(priv->dev);
 err_free_mem:
 	for (i = 0; i < priv->num_rmem; i++)
 		kfree(mem[i]);
@@ -208,6 +219,8 @@ int sunxi_rproc_unprepare(struct rproc *rproc)
 
 	reset_control_assert(priv->rst_sram);
 	reset_control_assert(priv->rst_cfg);
+
+	pm_runtime_put(priv->dev);
 
 	return 0;
 }
@@ -582,6 +595,19 @@ static int sunxi_rproc_probe(struct platform_device *pdev)
 	priv->cfg = of_device_get_match_data(dev);
 	if (!priv->cfg)
 		priv->cfg = &sun55i_riscv_cfg;
+
+	/*
+	 * The core and its SRAM sit in two PPU power domains. With more than one
+	 * domain the driver core does not attach them, so do it here; runtime PM
+	 * of this device then powers both, from prepare() to unprepare().
+	 */
+	ret = devm_pm_domain_attach_list(dev, NULL, &priv->pd_list);
+	if (ret < 0)
+		return dev_err_probe(dev, ret, "failed to attach power domains\n");
+
+	ret = devm_pm_runtime_enable(dev);
+	if (ret)
+		return ret;
 
 	/* 1. Clocks */
 	priv->clk_bus = devm_clk_get(dev, "bus");
