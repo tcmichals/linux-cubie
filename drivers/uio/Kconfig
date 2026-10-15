@@ -25,6 +25,15 @@ config UIO_CIF
 	  To compile this driver as a module, choose M here: the module
 	  will be called uio_cif.
 
+config UIO_SUN55I_MSGBOX
+	tristate "Allwinner A523 message box UIO driver (Cubie A5E project)"
+	depends on ARCH_SUNXI || COMPILE_TEST
+	depends on COMMON_CLK && RESET_CONTROLLER
+	help
+	  Exposes the A523/T527 ARM message box bank and a shared SRAM window
+	  to userspace through UIO, with the bus clock and reset switched on.
+	  Used by the Cubie A5E UIO test profile. Not for upstream.
+
 config UIO_PDRV_GENIRQ
 	tristate "Userspace I/O platform driver with generic IRQ handling"
 	help
