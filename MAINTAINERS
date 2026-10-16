@@ -954,6 +954,14 @@ S:	Maintained
 F:	Documentation/devicetree/bindings/mailbox/allwinner,sun55i-a523-msgbox.yaml
 F:	drivers/mailbox/sun55i*
 
+ALLWINNER SUN55I REMOTEPROC DRIVER
+M:	Tim Michals <tcmichals@gmail.com>
+L:	linux-remoteproc@vger.kernel.org
+L:	linux-sunxi@lists.linux.dev
+S:	Maintained
+F:	Documentation/devicetree/bindings/remoteproc/allwinner,sun55i-a523-rproc.yaml
+F:	drivers/remoteproc/sunxi_rproc*
+
 ALLWINNER THERMAL DRIVER
 M:	Vasily Khoruzhick <anarsoul@gmail.com>
 M:	Yangtao Li <tiny.windzz@gmail.com>
