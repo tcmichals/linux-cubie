@@ -341,6 +341,17 @@ config SUN55I_MSGBOX
 	  Cortex-A55 host and the CPUS, HiFi4 DSP and XuanTie E906 RISC-V
 	  processors.
 
+config SUN55I_MSGBOX_KUNIT_TEST
+	tristate "KUnit tests for Allwinner sun55i msgbox" if !KUNIT_ALL_TESTS
+	depends on SUN55I_MSGBOX && KUNIT
+	default KUNIT_ALL_TESTS
+	help
+	  KUnit tests for the Allwinner sun55i-msgbox driver. They run the
+	  channel operations (send, peek, last_tx_done, startup, shutdown)
+	  and the interrupt handlers against mock register banks that model
+	  the FIFOs and the write-1-to-clear status registers.
+	  Say Y here to run these tests during boot or via kunit.py.
+
 config SPRD_MBOX
 	tristate "Spreadtrum Mailbox"
 	depends on ARCH_SPRD || COMPILE_TEST
