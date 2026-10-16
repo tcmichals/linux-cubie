@@ -348,6 +348,21 @@ config SUNXI_REMOTEPROC
 	  To compile this driver as a module, choose M here: the module will
 	  be called sunxi_rproc.
 
+config SUNXI_REMOTEPROC_KUNIT_TEST
+	tristate "KUnit tests for Allwinner sunxi remoteproc" if !KUNIT_ALL_TESTS
+	depends on SUNXI_REMOTEPROC && KUNIT && COMMON_CLK && RESET_CONTROLLER
+	default KUNIT_ALL_TESTS
+	help
+	  KUnit tests for the Allwinner sunxi_rproc driver: da_to_va()
+	  address translation for both SRAM spaces and DRAM carveouts,
+	  prepare()/unprepare() (reset and clock order, every failure
+	  unwound, remap bit, SRAM clear), start()/stop() (boot address,
+	  crash interrupt), the crash handler, parse_fw() (resource table,
+	  carveouts, crash dump segments), kicks, and the vring
+	  notifications. Fake clocks and a fake reset controller stand in
+	  for the hardware.
+	  Say Y here to run these tests during boot or via kunit.py.
+
 config TI_K3_DSP_REMOTEPROC
 	tristate "TI K3 DSP remoteproc support"
 	depends on ARCH_K3 || COMPILE_TEST
