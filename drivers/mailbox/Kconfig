@@ -344,6 +344,18 @@ config SUN55I_MSGBOX
 	  To compile this driver as a module, choose M here: the module will
 	  be called sun55i-msgbox.
 
+config SUN55I_MSGBOX_KUNIT_TEST
+	tristate "KUnit tests for Allwinner sun55i msgbox" if !KUNIT_ALL_TESTS
+	depends on SUN55I_MSGBOX && KUNIT
+	default KUNIT_ALL_TESTS
+	help
+	  KUnit tests for the Allwinner sun55i-msgbox driver. They run the
+	  channel operations (send, peek, last_tx_done, startup, shutdown)
+	  and the interrupt handlers against mock register banks that model
+	  the 8-deep FIFOs and the read and write status registers, and
+	  request, share and free the TX-done line on a dummy interrupt.
+	  Say Y here to run these tests during boot or via kunit.py.
+
 config SPRD_MBOX
 	tristate "Spreadtrum Mailbox"
 	depends on ARCH_SPRD || COMPILE_TEST
