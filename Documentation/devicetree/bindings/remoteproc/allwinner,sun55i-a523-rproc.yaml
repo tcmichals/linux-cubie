@@ -64,8 +64,7 @@ properties:
   mboxes:
     description:
       Message box channel to the RISC-V core. Each channel has a FIFO in
-      each direction, carrying the host's vring kicks and the core's
-      notifications.
+      each direction, so it carries notifications both ways.
     maxItems: 1
 
   firmware-name:
