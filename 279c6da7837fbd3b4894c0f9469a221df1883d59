@@ -1,0 +1,9 @@
+Changes in v3:
+  - only the host bank's interrupt is requested; the handler holds the
+    lock across the status read and the FIFO drain
+  - pending status is cleared before draining; the drain is bounded by
+    the FIFO depth
+  - last_tx_done() reports done only once the remote has drained the
+    FIFO (Sashiko)
+  - only the host bank's clock and reset; reset released through a devm
+    action, clock through devm_clk_get_enabled()

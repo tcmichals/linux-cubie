@@ -1,0 +1,5 @@
+Changes in v3:
+  - moved after the driver patches; can be dropped or taken separately
+  - tests exercise driver behaviour only (34 -> 22)
+  - fake MMIO accessed with readl()/writel() (Sashiko, big endian)
+  - depends on SUN55I_MSGBOX, ARM64 or COMPILE_TEST (Sashiko)

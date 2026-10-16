@@ -1,0 +1,15 @@
+Changes in v3:
+  - the mailbox receive callback only queues work; rproc_vq_interrupt()
+    runs from an ordered workqueue
+  - teardown: rproc_del(), then the mailbox channel is freed, then the
+    work is cancelled
+  - cfg, remap and both SRAM regions are required
+  - address translation covers only the two SRAM windows; DRAM, trace
+    and vrings come from the carveouts (Sashiko)
+  - crash interrupt armed and disarmed with an atomic bit (Sashiko)
+  - kick payloads are static per-vring constants (Sashiko)
+  - boot address and remap writes are read back before the reset is
+    released (Sashiko)
+  - runtime PM powers the RISC-V and SRAM domains; debug reset handled
+  - one mailbox channel instead of two
+  - A733 (sun60i) support dropped

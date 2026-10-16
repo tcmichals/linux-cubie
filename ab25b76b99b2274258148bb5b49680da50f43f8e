@@ -1,0 +1,6 @@
+Changes in v3:
+  - reg: no minItems; interrupts and interrupt-names listed with
+    minItems (Krzysztof)
+  - only the host bank's clock and reset
+  - no "|" pipes, no redundant descriptions; subject no longer says
+    "schema" (Krzysztof)

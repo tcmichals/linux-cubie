@@ -1,0 +1,9 @@
+Changes in v3:
+  - file renamed to match the compatible
+  - reg-names, clocks and resets are fixed lists (3 clocks, 4 resets),
+    no minItems (Krzysztof); added the RISC-V debug reset
+  - added the RISC-V and SRAM power domains
+  - one mboxes entry, no mbox-names
+  - memory-region and memory-region-names list their items
+  - no driver behaviour in descriptions; subject no longer says "schema"
+    (Krzysztof)
