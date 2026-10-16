@@ -969,6 +969,14 @@ L:	linux-media@vger.kernel.org
 S:	Maintained
 F:	drivers/staging/media/sunxi/cedrus/
 
+ALLWINNER XUANTIE RISC-V REMOTEPROC DRIVER
+M:	Tim Michals <tcmichals@gmail.com>
+L:	linux-remoteproc@vger.kernel.org
+L:	linux-sunxi@lists.linux.dev
+S:	Maintained
+F:	Documentation/devicetree/bindings/remoteproc/allwinner,sun55i-a523-rproc.yaml
+F:	drivers/remoteproc/sunxi_rproc*
+
 ALPHA PORT
 M:	Richard Henderson <richard.henderson@linaro.org>
 M:	Matt Turner <mattst88@gmail.com>
