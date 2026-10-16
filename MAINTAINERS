@@ -937,7 +937,7 @@ M:	Tim Michals <tcmichals@gmail.com>
 L:	linux-remoteproc@vger.kernel.org
 L:	linux-sunxi@lists.linux.dev
 S:	Maintained
-F:	Documentation/devicetree/bindings/remoteproc/allwinner,sun55i-rproc.yaml
+F:	Documentation/devicetree/bindings/remoteproc/allwinner,sun55i-a523-rproc.yaml
 F:	drivers/remoteproc/sunxi_rproc*
 
 ALPHA PORT

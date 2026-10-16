@@ -90,9 +90,6 @@ struct sunxi_rproc {
 	phys_addr_t r_sram1_phys;
 	size_t r_sram1_size;
 
-
-	/* Trace / DDR Reserved Memory Window */
-
 	/* Reserved Memory & Mailbox State */
 	struct sunxi_rproc_rmem rmem[SUNXI_RPROC_MAX_RMEM];
 	unsigned int num_rmem;
