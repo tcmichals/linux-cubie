@@ -1,0 +1,3 @@
+Changes in v3:
+  - host bank clock and reset only, four interrupts
+  - remoteproc: debug reset, power domains, one mailbox channel

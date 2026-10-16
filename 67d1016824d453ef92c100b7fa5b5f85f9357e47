@@ -1,0 +1,7 @@
+Changes in v3:
+  - moved after the driver patches; can be dropped or taken separately
+  - tests exercise driver behaviour only (32 -> 25); DRAM and trace go
+    through the core; added a test that the receive callback defers to
+    the workqueue
+  - fake MMIO accessed with readl()/writel() (Sashiko, big endian)
+  - depends on SUNXI_REMOTEPROC, ARM64 or COMPILE_TEST (Sashiko)
