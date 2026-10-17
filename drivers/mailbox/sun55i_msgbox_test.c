@@ -5,6 +5,8 @@
  * Covers:
  *  - the 12-channel routing table and out-of-range channel numbers
  *  - send_data, last_tx_done, peek_data, startup and shutdown
+ *  - TX done by write IRQ: armed only while the FIFO is full, the handler
+ *    disarms, acks and ignores channels it did not arm
  *  - the interrupt handler: delivery, per-channel isolation, several
  *    channels and ports in one pass, and the FIFO_MAX drain bound
  *
@@ -267,15 +269,130 @@ static void test_functional_last_tx_done_sweep(struct kunit *test)
 	u32 reg_idx = SUNXI_MSGBOX_MSG_STATUS(2, 0) / 4;
 	u32 count;
 
-	/* Count 0: remote has drained the FIFO -> last_tx_done returns true */
-	mock_write_reg(fix, 3, reg_idx, 0);
-	KUNIT_EXPECT_TRUE(test, sun55i_msgbox_chan_ops.last_tx_done(&fix->chans[8]));
+	/* Counts 0..7: the FIFO has room for the next kick -> done */
+	for (count = 0; count < SUN55I_FIFO_MAX; count++) {
+		mock_write_reg(fix, 3, reg_idx, count);
+		KUNIT_EXPECT_TRUE(test, sun55i_msgbox_chan_ops.last_tx_done(&fix->chans[8]));
+	}
 
-	/* Counts 1..15: message(s) still pending at remote -> returns false */
-	for (count = 1; count <= 15; count++) {
+	/* Count 8 (full) and anything above: wait */
+	for (count = SUN55I_FIFO_MAX; count <= 15; count++) {
 		mock_write_reg(fix, 3, reg_idx, count);
 		KUNIT_EXPECT_FALSE(test, sun55i_msgbox_chan_ops.last_tx_done(&fix->chans[8]));
 	}
+
+	/* Timer mode never touches the write IRQ */
+	KUNIT_EXPECT_EQ(test, mock_read_reg(fix, 3, SUNXI_MSGBOX_WRITE_IRQ_ENABLE(2) / 4), 0U);
+}
+
+static void test_functional_send_data_refuses_full_fifo(struct kunit *test)
+{
+	struct mock_msgbox_fixture *fix = create_mock_fixture(test);
+	u32 fifo = SUNXI_MSGBOX_MSG_FIFO(2, 1) / 4;
+	u32 val = 0xA5A5A5A5;
+
+	/* Writing a full FIFO corrupts its count: never do it */
+	mock_write_reg(fix, 3, SUNXI_MSGBOX_MSG_STATUS(2, 1) / 4, SUN55I_FIFO_MAX);
+	mock_write_reg(fix, 3, fifo, 0);
+	KUNIT_EXPECT_EQ(test, sun55i_msgbox_chan_ops.send_data(&fix->chans[9], &val), -EBUSY);
+	KUNIT_EXPECT_EQ(test, mock_read_reg(fix, 3, fifo), 0U);
+
+	/* With room it writes */
+	mock_write_reg(fix, 3, SUNXI_MSGBOX_MSG_STATUS(2, 1) / 4, SUN55I_FIFO_MAX - 1);
+	KUNIT_EXPECT_EQ(test, sun55i_msgbox_chan_ops.send_data(&fix->chans[9], &val), 0);
+	KUNIT_EXPECT_EQ(test, mock_read_reg(fix, 3, fifo), val);
+}
+
+/* Write IRQ mode: fixture channels wired to the mailbox core's txdone path */
+static struct mock_msgbox_fixture *create_tx_irq_fixture(struct kunit *test)
+{
+	struct mock_msgbox_fixture *fix = create_mock_fixture(test);
+	int i;
+
+	fix->mbox.tx_done_irq = true;
+	mutex_init(&fix->mbox.tx_irq_lock);
+	fix->mbox.controller.ops = &sun55i_msgbox_chan_ops;
+	for (i = 0; i < SUN55I_MAX_PROCESSORS; i++) {
+		fix->mbox.tx_irqs[i].mbox = &fix->mbox;
+		fix->mbox.tx_irqs[i].remote_id = i;
+	}
+	for (i = 0; i < SUN55I_NUM_CHANS; i++) {
+		spin_lock_init(&fix->chans[i].lock);
+		fix->chans[i].mbox = &fix->mbox.controller;
+		fix->chans[i].active_req = MBOX_NO_MSG;
+		fix->chans[i].txdone_method = MBOX_TXDONE_BY_IRQ;
+	}
+	return fix;
+}
+
+static void test_tx_irq_armed_after_every_send(struct kunit *test)
+{
+	struct mock_msgbox_fixture *fix = create_tx_irq_fixture(test);
+	u32 status = SUNXI_MSGBOX_MSG_STATUS(2, 1) / 4;
+	u32 fifo = SUNXI_MSGBOX_MSG_FIFO(2, 1) / 4;
+	u32 wr_en = SUNXI_MSGBOX_WRITE_IRQ_ENABLE(2) / 4;
+	u32 wr_sta = SUNXI_MSGBOX_WRITE_IRQ_STATUS(2) / 4;
+	u32 val = 0x5A5A5A5A;
+
+	/*
+	 * Room in the FIFO: the kick is written and the write IRQ of this
+	 * channel (p = 1) is armed, after clearing the latched status. The mock
+	 * does not model W1C: the clear is a write of the bit.
+	 */
+	mock_write_reg(fix, 3, status, SUN55I_FIFO_MAX - 1);
+	mock_write_reg(fix, 3, wr_sta, 0xAA);
+	KUNIT_EXPECT_EQ(test, sun55i_msgbox_chan_ops.send_data(&fix->chans[9], &val), 0);
+	KUNIT_EXPECT_EQ(test, mock_read_reg(fix, 3, fifo), val);
+	KUNIT_EXPECT_EQ(test, mock_read_reg(fix, 3, wr_en), WR_IRQ_EN_BIT(1));
+	KUNIT_EXPECT_EQ(test, mock_read_reg(fix, 3, wr_sta), WR_IRQ_PEND_BIT(1));
+
+	/* Full: refused without writing, the IRQ is armed to retry it */
+	mock_write_reg(fix, 3, status, SUN55I_FIFO_MAX);
+	mock_write_reg(fix, 3, fifo, 0);
+	mock_write_reg(fix, 3, wr_en, 0);
+	KUNIT_EXPECT_EQ(test, sun55i_msgbox_chan_ops.send_data(&fix->chans[9], &val), -EBUSY);
+	KUNIT_EXPECT_EQ(test, mock_read_reg(fix, 3, fifo), 0U);
+	KUNIT_EXPECT_EQ(test, mock_read_reg(fix, 3, wr_en), WR_IRQ_EN_BIT(1));
+}
+
+static void test_tx_irq_handler_disarms_and_acks(struct kunit *test)
+{
+	struct mock_msgbox_fixture *fix = create_tx_irq_fixture(test);
+	struct sun55i_tx_irq *rv = &fix->mbox.tx_irqs[SUN55I_PROC_RV];
+	u32 wr_en = SUNXI_MSGBOX_WRITE_IRQ_ENABLE(2) / 4;
+	u32 wr_sta = SUNXI_MSGBOX_WRITE_IRQ_STATUS(2) / 4;
+
+	/* Armed and raised (the receiver read one): handled, disarmed, acked */
+	mock_write_reg(fix, 3, wr_en, WR_IRQ_EN_BIT(1));
+	mock_write_reg(fix, 3, wr_sta, WR_IRQ_PEND_BIT(1));
+	KUNIT_EXPECT_EQ(test, sun55i_msgbox_tx_irq(0, rv), IRQ_HANDLED);
+	KUNIT_EXPECT_EQ(test, mock_read_reg(fix, 3, wr_en), 0U);
+	/* The mock does not model W1C: the ack is a write of the pending bit */
+	KUNIT_EXPECT_EQ(test, mock_read_reg(fix, 3, wr_sta), WR_IRQ_PEND_BIT(1));
+}
+
+static void test_tx_irq_handler_ignores_unarmed(struct kunit *test)
+{
+	struct mock_msgbox_fixture *fix = create_tx_irq_fixture(test);
+	struct sun55i_tx_irq *rv = &fix->mbox.tx_irqs[SUN55I_PROC_RV];
+	u32 wr_en = SUNXI_MSGBOX_WRITE_IRQ_ENABLE(2) / 4;
+	u32 wr_sta = SUNXI_MSGBOX_WRITE_IRQ_STATUS(2) / 4;
+
+	/* Status is level and set whenever there is room: not ours unless armed */
+	mock_write_reg(fix, 3, wr_en, 0);
+	mock_write_reg(fix, 3, wr_sta, 0xAA);
+	KUNIT_EXPECT_EQ(test, sun55i_msgbox_tx_irq(0, rv), IRQ_NONE);
+
+	/* Armed on p = 0 only: p = 1 pending is ignored, p = 0 handled */
+	mock_write_reg(fix, 3, wr_en, WR_IRQ_EN_BIT(0));
+	KUNIT_EXPECT_EQ(test, sun55i_msgbox_tx_irq(0, rv), IRQ_HANDLED);
+	KUNIT_EXPECT_EQ(test, mock_read_reg(fix, 3, wr_en), 0U);
+
+	/* The CPUS bank line never handles the RV bank's channels */
+	mock_write_reg(fix, 3, wr_en, WR_IRQ_EN_BIT(1));
+	KUNIT_EXPECT_EQ(test, sun55i_msgbox_tx_irq(0, &fix->mbox.tx_irqs[SUN55I_PROC_CPUS]),
+			IRQ_NONE);
+	KUNIT_EXPECT_EQ(test, mock_read_reg(fix, 3, wr_en), WR_IRQ_EN_BIT(1));
 }
 
 static void test_functional_peek_data_sweep(struct kunit *test)
@@ -610,6 +727,7 @@ static struct kunit_case sun55i_msgbox_cases[] = {
 	KUNIT_CASE(test_functional_send_data_all_twelve_channels),
 	KUNIT_CASE(test_functional_send_data_null),
 	KUNIT_CASE(test_functional_last_tx_done_sweep),
+	KUNIT_CASE(test_functional_send_data_refuses_full_fifo),
 	KUNIT_CASE(test_functional_peek_data_sweep),
 	KUNIT_CASE(test_functional_startup_and_shutdown),
 	KUNIT_CASE(test_functional_shutdown_isolation),
@@ -625,6 +743,10 @@ static struct kunit_case sun55i_msgbox_cases[] = {
 	KUNIT_CASE(test_irq_fifo_drain_capped_at_max),
 	KUNIT_CASE(test_irq_channel_crosstalk_isolation),
 	KUNIT_CASE(test_irq_all_three_routes_simultaneous),
+	/* TX done by write IRQ ("allwinner,tx-done-irq") */
+	KUNIT_CASE(test_tx_irq_armed_after_every_send),
+	KUNIT_CASE(test_tx_irq_handler_disarms_and_acks),
+	KUNIT_CASE(test_tx_irq_handler_ignores_unarmed),
 	/* Ops & Controller Invariants */
 	{}
 };
