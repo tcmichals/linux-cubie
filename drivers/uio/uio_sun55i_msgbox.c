@@ -5,9 +5,9 @@
  *
  * The UIO test profile hands the ARM message box bank and a shared SRAM window
  * to userspace. generic-uio cannot do this: it switches on neither the bus
- * clock nor the reset, so the block stays gated, register writes are dropped
- * and no doorbell interrupt is ever raised. This driver holds both on for as
- * long as it is bound.
+ * clocks nor the resets, so the banks stay gated, register writes are dropped
+ * and no doorbell interrupt is ever raised. This driver holds the clocks and
+ * resets of every bank listed in the node on for as long as it is bound.
  *
  * The doorbell interrupt is level triggered and stays asserted until userspace
  * has read the FIFO empty, so the handler masks it and userspace unmasks it by
@@ -70,8 +70,8 @@ static int sun55i_msgbox_uio_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
 	struct sun55i_msgbox_uio *priv;
+	struct clk_bulk_data *clks;
 	struct reset_control *rst;
-	struct clk *clk;
 	int i, irq, ret;
 
 	priv = devm_kzalloc(dev, sizeof(*priv), GFP_KERNEL);
@@ -79,13 +79,13 @@ static int sun55i_msgbox_uio_probe(struct platform_device *pdev)
 		return -ENOMEM;
 	spin_lock_init(&priv->lock);
 
-	clk = devm_clk_get_enabled(dev, NULL);
-	if (IS_ERR(clk))
-		return dev_err_probe(dev, PTR_ERR(clk), "failed to enable bus clock\n");
+	ret = devm_clk_bulk_get_all_enabled(dev, &clks);
+	if (ret < 0)
+		return dev_err_probe(dev, ret, "failed to enable clocks\n");
 
-	rst = devm_reset_control_get_exclusive(dev, NULL);
+	rst = devm_reset_control_array_get_shared(dev);
 	if (IS_ERR(rst))
-		return dev_err_probe(dev, PTR_ERR(rst), "failed to get reset\n");
+		return dev_err_probe(dev, PTR_ERR(rst), "failed to get resets\n");
 	ret = reset_control_deassert(rst);
 	if (ret)
 		return dev_err_probe(dev, ret, "failed to deassert reset\n");
