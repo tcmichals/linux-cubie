@@ -7,6 +7,7 @@
  *    and zero-length handling, and that DRAM is left to the core carveouts
  *  - start(): STA_ADD programming and bootaddr validation
  *  - prepare()/unprepare(): remap bit, SRAM clearing, carveout re-registration
+ *  - kick(): one immutable payload per vring, valid while queued
  *  - mailbox rx callback deferring vring processing to the workqueue
  *
  * Copyright (C) 2026 Tim Michals <tcmichals@gmail.com>
@@ -15,9 +16,11 @@
 #include <kunit/device.h>
 #include <kunit/test.h>
 #include <linux/io.h>
+#include <linux/mailbox_controller.h>
 #include <linux/pm_runtime.h>
 #include <linux/remoteproc.h>
 #include <linux/sched.h>
+#include <linux/sched/task_stack.h>
 #include <linux/slab.h>
 #include <linux/workqueue.h>
 #include "remoteproc_internal.h"
@@ -53,6 +56,8 @@ struct test_context {
 	u8 mock_sram1_buf[1024];
 	bool rx_work_ran;
 	bool rx_work_in_kworker;
+	void *kick_data[4];
+	int kick_count;
 };
 
 static struct test_context *create_test_ctx(struct kunit *test)
@@ -424,11 +429,18 @@ static void test_start_rejects_bootaddr_overflow(struct kunit *test)
 	struct test_context *ctx = create_test_ctx(test);
 	int ret;
 
+	use_mmio_mocks(ctx);
+	writel(E906_SRAM_SPACE0_DA, ctx->priv.cfg_va + E906_STA_ADD_REG);
+
 	/* Addresses beyond 32-bit range are invalid for 32-bit XuanTie E906 */
 	ctx->rproc.bootaddr = 0x100000000ULL;
 
 	ret = sunxi_rproc_start(&ctx->rproc);
 	KUNIT_EXPECT_EQ(test, ret, -EINVAL);
+
+	/* Rejected before STA_ADD is touched */
+	KUNIT_EXPECT_EQ(test, readl(ctx->priv.cfg_va + E906_STA_ADD_REG),
+			(u32)E906_SRAM_SPACE0_DA);
 }
 
 /* ==================== Lifecycle: prepare & unprepare ==================== */
@@ -439,18 +451,20 @@ static void test_prepare_and_unprepare_remap(struct kunit *test)
 	int ret;
 
 	use_mmio_mocks(ctx);
-	ctx->mock_remap_reg = 0;
+
+	/* Bit 0 belongs to the DSP (reset value 1): only bit 1 may change */
+	ctx->mock_remap_reg = SUNXI_REMAP_MCU_RAM_BIT;
 
 	/* prepare() should set SUNXI_REMAP_SRAMA3_2_BIT (bit 1) */
 	ret = sunxi_rproc_prepare(&ctx->rproc);
 	KUNIT_EXPECT_EQ(test, ret, 0);
-	KUNIT_EXPECT_EQ(test, readl(ctx->priv.remap_va) & SUNXI_REMAP_SRAMA3_2_BIT,
-			SUNXI_REMAP_SRAMA3_2_BIT);
+	KUNIT_EXPECT_EQ(test, readl(ctx->priv.remap_va),
+			SUNXI_REMAP_MCU_RAM_BIT | SUNXI_REMAP_SRAMA3_2_BIT);
 
 	/* unprepare() should clear SUNXI_REMAP_SRAMA3_2_BIT */
 	ret = sunxi_rproc_unprepare(&ctx->rproc);
 	KUNIT_EXPECT_EQ(test, ret, 0);
-	KUNIT_EXPECT_EQ(test, readl(ctx->priv.remap_va) & SUNXI_REMAP_SRAMA3_2_BIT, 0U);
+	KUNIT_EXPECT_EQ(test, readl(ctx->priv.remap_va), SUNXI_REMAP_MCU_RAM_BIT);
 }
 
 static void test_prepare_clears_sram(struct kunit *test)
@@ -521,6 +535,70 @@ static void test_prepare_carveout_lifecycle(struct kunit *test)
 	}
 }
 
+/* ==================== kick ==================== */
+
+static int kick_send_data(struct mbox_chan *chan, void *data)
+{
+	struct test_context *ctx = chan->con_priv;
+
+	if (ctx->kick_count < ARRAY_SIZE(ctx->kick_data))
+		ctx->kick_data[ctx->kick_count] = data;
+	ctx->kick_count++;
+	return 0;
+}
+
+static const struct mbox_chan_ops kick_chan_ops = {
+	.send_data = kick_send_data,
+};
+
+/*
+ * The mailbox core keeps the message pointer while a previous request is
+ * active and passes it to the controller later. A kick queued behind another
+ * one must still carry its own vring index when it is finally sent.
+ */
+static void test_kick_payload_outlives_call(struct kunit *test)
+{
+	struct test_context *ctx = create_test_ctx(test);
+	struct mbox_controller *ctrl;
+	struct mbox_chan *chan;
+
+	ctrl = kunit_kzalloc(test, sizeof(*ctrl), GFP_KERNEL);
+	chan = kunit_kzalloc(test, sizeof(*chan), GFP_KERNEL);
+	KUNIT_ASSERT_NOT_NULL(test, ctrl);
+	KUNIT_ASSERT_NOT_NULL(test, chan);
+
+	ctrl->dev = ctx->priv.dev;
+	ctrl->ops = &kick_chan_ops;
+	spin_lock_init(&chan->lock);
+	chan->mbox = ctrl;
+	chan->cl = &ctx->priv.cl;
+	chan->con_priv = ctx;
+	chan->active_req = MBOX_NO_MSG;
+	/* The test completes each request itself */
+	chan->txdone_method = MBOX_TXDONE_BY_ACK;
+	ctx->priv.mbox_chan = chan;
+
+	/* vring 0 goes out at once; vring 1 is queued behind it */
+	sunxi_rproc_kick(&ctx->rproc, 0);
+	sunxi_rproc_kick(&ctx->rproc, 1);
+	KUNIT_ASSERT_EQ(test, ctx->kick_count, 1);
+
+	/* Completing vring 0 sends the queued kick */
+	mbox_client_txdone(chan, 0);
+	KUNIT_ASSERT_EQ(test, ctx->kick_count, 2);
+	mbox_client_txdone(chan, 0);
+
+	KUNIT_EXPECT_EQ(test, *(u32 *)ctx->kick_data[0], 0U);
+	KUNIT_EXPECT_EQ(test, *(u32 *)ctx->kick_data[1], 1U);
+	KUNIT_EXPECT_FALSE(test, object_is_on_stack(ctx->kick_data[0]));
+	KUNIT_EXPECT_FALSE(test, object_is_on_stack(ctx->kick_data[1]));
+
+	/* No mailbox channel: kick is a no-op */
+	ctx->priv.mbox_chan = NULL;
+	sunxi_rproc_kick(&ctx->rproc, 0);
+	KUNIT_EXPECT_EQ(test, ctx->kick_count, 2);
+}
+
 /* ==================== Mailbox rx callback ==================== */
 
 /*
@@ -581,14 +659,15 @@ static struct kunit_case sunxi_rproc_test_cases[] = {
 	KUNIT_CASE(test_da_to_va_exact_upper_boundary_space0),
 	KUNIT_CASE(test_da_to_va_exact_upper_boundary_space1),
 	KUNIT_CASE(test_da_to_va_corrupted_elf_overflow_segment),
-	/* Lifecycle: start and stop */
+	/* Lifecycle: start */
 	KUNIT_CASE(test_start_bootaddr_programming),
 	KUNIT_CASE(test_start_rejects_bootaddr_overflow),
 	/* Lifecycle: prepare and unprepare */
 	KUNIT_CASE(test_prepare_and_unprepare_remap),
 	KUNIT_CASE(test_prepare_clears_sram),
 	KUNIT_CASE(test_prepare_carveout_lifecycle),
-	/* Operations: kick */
+	/* kick and mailbox rx callback */
+	KUNIT_CASE(test_kick_payload_outlives_call),
 	KUNIT_CASE(test_rx_callback_defers_to_workqueue),
 	{}
 };
