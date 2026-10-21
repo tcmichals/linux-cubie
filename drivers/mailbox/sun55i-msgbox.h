@@ -72,6 +72,8 @@ struct sun55i_msgbox {
 extern const struct sun55i_route sun55i_msgbox_arm_routes[SUN55I_NUM_ROUTES];
 extern const struct mbox_chan_ops sun55i_msgbox_chan_ops;
 
+u32 sun55i_readl(void __iomem *addr);
+void sun55i_writel(u32 val, void __iomem *addr);
 void sun55i_chan_to_route(int chan_idx, int *local_n, int *p,
 			  int *remote_id, int *remote_n);
 irqreturn_t sun55i_msgbox_irq(int irq, void *dev_id);
