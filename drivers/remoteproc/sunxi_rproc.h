@@ -110,7 +110,6 @@ extern const struct rproc_ops sunxi_rproc_ops;
 int sunxi_rproc_prepare(struct rproc *rproc);
 int sunxi_rproc_unprepare(struct rproc *rproc);
 int sunxi_rproc_start(struct rproc *rproc);
-int sunxi_rproc_stop(struct rproc *rproc);
 void sunxi_rproc_kick(struct rproc *rproc, int vqid);
 void sunxi_rproc_mb_rx_callback(struct mbox_client *cl, void *data);
 void *sunxi_rproc_da_to_va(struct rproc *rproc, u64 da, size_t len, bool *is_iomem);

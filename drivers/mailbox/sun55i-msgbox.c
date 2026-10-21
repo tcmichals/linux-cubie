@@ -29,13 +29,11 @@
  *   local_n = 1 -> DSP  (remote_id = SUN55I_PROC_DSP,  remote_n = 0) -> Channels 4..7
  *   local_n = 2 -> RV   (remote_id = SUN55I_PROC_RV,   remote_n = 2) -> Channels 8..11
  */
-VISIBLE_IF_KUNIT
-const struct sun55i_route sun55i_msgbox_arm_routes[SUN55I_NUM_ROUTES] = {
+static const struct sun55i_route sun55i_msgbox_arm_routes[SUN55I_NUM_ROUTES] = {
 	[0] = { .remote_id = SUN55I_PROC_CPUS, .remote_n = 0 },
 	[1] = { .remote_id = SUN55I_PROC_DSP,  .remote_n = 0 },
 	[2] = { .remote_id = SUN55I_PROC_RV,   .remote_n = 2 },
 };
-EXPORT_SYMBOL_IF_KUNIT(sun55i_msgbox_arm_routes);
 
 static inline struct sun55i_msgbox *to_sun55i_msgbox(struct mbox_chan *chan)
 {

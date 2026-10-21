@@ -245,8 +245,7 @@ int sunxi_rproc_start(struct rproc *rproc)
 }
 EXPORT_SYMBOL_IF_KUNIT(sunxi_rproc_start);
 
-VISIBLE_IF_KUNIT
-int sunxi_rproc_stop(struct rproc *rproc)
+static int sunxi_rproc_stop(struct rproc *rproc)
 {
 	struct sunxi_rproc *priv = rproc->priv;
 	const struct sunxi_rproc_cfg *cfg = priv->cfg;
@@ -262,7 +261,6 @@ int sunxi_rproc_stop(struct rproc *rproc)
 
 	return 0;
 }
-EXPORT_SYMBOL_IF_KUNIT(sunxi_rproc_stop);
 
 /*
  * Kick payloads must outlive sunxi_rproc_kick(): with txdone_poll the mailbox

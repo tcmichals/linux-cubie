@@ -69,7 +69,6 @@ struct sun55i_msgbox {
 };
 
 #if IS_ENABLED(CONFIG_KUNIT)
-extern const struct sun55i_route sun55i_msgbox_arm_routes[SUN55I_NUM_ROUTES];
 extern const struct mbox_chan_ops sun55i_msgbox_chan_ops;
 
 u32 sun55i_readl(void __iomem *addr);
