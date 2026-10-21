@@ -343,14 +343,13 @@ config SUN55I_MSGBOX
 
 config SUN55I_MSGBOX_KUNIT_TEST
 	tristate "KUnit tests for Allwinner sun55i msgbox" if !KUNIT_ALL_TESTS
-	# The tests use plain memory as fake MMIO, which readl()/writel()
-	# only handle like registers on the architectures below.
-	depends on SUN55I_MSGBOX && KUNIT && (ARM64 || COMPILE_TEST) && !UML
+	depends on SUN55I_MSGBOX && KUNIT
 	default KUNIT_ALL_TESTS
 	help
 	  KUnit tests for the Allwinner sun55i-msgbox driver. They run the
 	  channel operations (send, peek, last_tx_done, startup, shutdown)
-	  against a mock register bank.
+	  and the interrupt handlers against mock register banks that model
+	  the FIFOs and the write-1-to-clear status registers.
 	  Say Y here to run these tests during boot or via kunit.py.
 
 config SPRD_MBOX
