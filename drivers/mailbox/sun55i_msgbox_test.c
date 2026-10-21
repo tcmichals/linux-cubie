@@ -26,109 +26,26 @@
 
 /* =============== Channel Routing Table Tests =============== */
 
-static void test_chan_to_route_cpus_all(struct kunit *test)
+static void test_chan_to_route_all(struct kunit *test)
 {
-	int local_n, p, remote_id, remote_n;
+	/* local_n, p, remote_id, remote_n for host channels 0..11 */
+	static const int expect[SUN55I_NUM_CHANS][4] = {
+		{ 0, 0, SUN55I_PROC_CPUS, 0 }, { 0, 1, SUN55I_PROC_CPUS, 0 },
+		{ 0, 2, SUN55I_PROC_CPUS, 0 }, { 0, 3, SUN55I_PROC_CPUS, 0 },
+		{ 1, 0, SUN55I_PROC_DSP, 0 },  { 1, 1, SUN55I_PROC_DSP, 0 },
+		{ 1, 2, SUN55I_PROC_DSP, 0 },  { 1, 3, SUN55I_PROC_DSP, 0 },
+		{ 2, 0, SUN55I_PROC_RV, 2 },   { 2, 1, SUN55I_PROC_RV, 2 },
+		{ 2, 2, SUN55I_PROC_RV, 2 },   { 2, 3, SUN55I_PROC_RV, 2 },
+	};
+	int ch, local_n, p, remote_id, remote_n;
 
-	/* Ch 0..3: CPUS (remote_id = SUN55I_PROC_CPUS, remote_n = 0, local_n = 0) */
-	sun55i_chan_to_route(0, &local_n, &p, &remote_id, &remote_n);
-	KUNIT_EXPECT_EQ(test, local_n, 0);
-	KUNIT_EXPECT_EQ(test, p, 0);
-	KUNIT_EXPECT_EQ(test, remote_id, SUN55I_PROC_CPUS);
-	KUNIT_EXPECT_EQ(test, remote_n, 0);
-
-	sun55i_chan_to_route(1, &local_n, &p, &remote_id, &remote_n);
-	KUNIT_EXPECT_EQ(test, local_n, 0);
-	KUNIT_EXPECT_EQ(test, p, 1);
-	KUNIT_EXPECT_EQ(test, remote_id, SUN55I_PROC_CPUS);
-	KUNIT_EXPECT_EQ(test, remote_n, 0);
-
-	sun55i_chan_to_route(2, &local_n, &p, &remote_id, &remote_n);
-	KUNIT_EXPECT_EQ(test, local_n, 0);
-	KUNIT_EXPECT_EQ(test, p, 2);
-	KUNIT_EXPECT_EQ(test, remote_id, SUN55I_PROC_CPUS);
-	KUNIT_EXPECT_EQ(test, remote_n, 0);
-
-	sun55i_chan_to_route(3, &local_n, &p, &remote_id, &remote_n);
-	KUNIT_EXPECT_EQ(test, local_n, 0);
-	KUNIT_EXPECT_EQ(test, p, 3);
-	KUNIT_EXPECT_EQ(test, remote_id, SUN55I_PROC_CPUS);
-	KUNIT_EXPECT_EQ(test, remote_n, 0);
-}
-
-static void test_chan_to_route_dsp_all(struct kunit *test)
-{
-	int local_n, p, remote_id, remote_n;
-
-	/* Ch 4..7: DSP (remote_id = SUN55I_PROC_DSP, remote_n = 0, local_n = 1) */
-	sun55i_chan_to_route(4, &local_n, &p, &remote_id, &remote_n);
-	KUNIT_EXPECT_EQ(test, local_n, 1);
-	KUNIT_EXPECT_EQ(test, p, 0);
-	KUNIT_EXPECT_EQ(test, remote_id, SUN55I_PROC_DSP);
-	KUNIT_EXPECT_EQ(test, remote_n, 0);
-
-	sun55i_chan_to_route(5, &local_n, &p, &remote_id, &remote_n);
-	KUNIT_EXPECT_EQ(test, local_n, 1);
-	KUNIT_EXPECT_EQ(test, p, 1);
-	KUNIT_EXPECT_EQ(test, remote_id, SUN55I_PROC_DSP);
-	KUNIT_EXPECT_EQ(test, remote_n, 0);
-
-	sun55i_chan_to_route(6, &local_n, &p, &remote_id, &remote_n);
-	KUNIT_EXPECT_EQ(test, local_n, 1);
-	KUNIT_EXPECT_EQ(test, p, 2);
-	KUNIT_EXPECT_EQ(test, remote_id, SUN55I_PROC_DSP);
-	KUNIT_EXPECT_EQ(test, remote_n, 0);
-
-	sun55i_chan_to_route(7, &local_n, &p, &remote_id, &remote_n);
-	KUNIT_EXPECT_EQ(test, local_n, 1);
-	KUNIT_EXPECT_EQ(test, p, 3);
-	KUNIT_EXPECT_EQ(test, remote_id, SUN55I_PROC_DSP);
-	KUNIT_EXPECT_EQ(test, remote_n, 0);
-}
-
-static void test_chan_to_route_rv_all(struct kunit *test)
-{
-	int local_n, p, remote_id, remote_n;
-
-	/* Ch 8..11: XuanTie RISC-V (remote_id = SUN55I_PROC_RV, remote_n = 2, local_n = 2) */
-	sun55i_chan_to_route(8, &local_n, &p, &remote_id, &remote_n);
-	KUNIT_EXPECT_EQ(test, local_n, 2);
-	KUNIT_EXPECT_EQ(test, p, 0);
-	KUNIT_EXPECT_EQ(test, remote_id, SUN55I_PROC_RV);
-	KUNIT_EXPECT_EQ(test, remote_n, 2);
-
-	sun55i_chan_to_route(9, &local_n, &p, &remote_id, &remote_n);
-	KUNIT_EXPECT_EQ(test, local_n, 2);
-	KUNIT_EXPECT_EQ(test, p, 1);
-	KUNIT_EXPECT_EQ(test, remote_id, SUN55I_PROC_RV);
-	KUNIT_EXPECT_EQ(test, remote_n, 2);
-
-	sun55i_chan_to_route(10, &local_n, &p, &remote_id, &remote_n);
-	KUNIT_EXPECT_EQ(test, local_n, 2);
-	KUNIT_EXPECT_EQ(test, p, 2);
-	KUNIT_EXPECT_EQ(test, remote_id, SUN55I_PROC_RV);
-	KUNIT_EXPECT_EQ(test, remote_n, 2);
-
-	sun55i_chan_to_route(11, &local_n, &p, &remote_id, &remote_n);
-	KUNIT_EXPECT_EQ(test, local_n, 2);
-	KUNIT_EXPECT_EQ(test, p, 3);
-	KUNIT_EXPECT_EQ(test, remote_id, SUN55I_PROC_RV);
-	KUNIT_EXPECT_EQ(test, remote_n, 2);
-}
-
-static void test_chan_to_route_boundary_limits(struct kunit *test)
-{
-	int local_n, p, remote_id, remote_n;
-
-	/* Channel 0 (lowest valid) */
-	sun55i_chan_to_route(0, &local_n, &p, &remote_id, &remote_n);
-	KUNIT_EXPECT_EQ(test, local_n, 0);
-	KUNIT_EXPECT_EQ(test, p, 0);
-
-	/* Channel 11 (highest valid) */
-	sun55i_chan_to_route(11, &local_n, &p, &remote_id, &remote_n);
-	KUNIT_EXPECT_EQ(test, local_n, 2);
-	KUNIT_EXPECT_EQ(test, p, 3);
+	for (ch = 0; ch < SUN55I_NUM_CHANS; ch++) {
+		sun55i_chan_to_route(ch, &local_n, &p, &remote_id, &remote_n);
+		KUNIT_EXPECT_EQ_MSG(test, local_n, expect[ch][0], "channel %d", ch);
+		KUNIT_EXPECT_EQ_MSG(test, p, expect[ch][1], "channel %d", ch);
+		KUNIT_EXPECT_EQ_MSG(test, remote_id, expect[ch][2], "channel %d", ch);
+		KUNIT_EXPECT_EQ_MSG(test, remote_n, expect[ch][3], "channel %d", ch);
+	}
 }
 
 static void test_chan_to_route_invalid_channels(struct kunit *test)
@@ -173,6 +90,7 @@ struct mock_msgbox_fixture {
 	u32 regs[SUN55I_MAX_PROCESSORS][0x400 / 4];
 	/* Hardware defect: reading a FIFO does not lower its message count */
 	bool fifo_stuck;
+	int fifo_reads;
 };
 
 /* Test-side access: the registers as stored, no hardware behaviour */
@@ -225,6 +143,7 @@ static u32 mock_readl(void __iomem *addr)
 	    reg <= SUNXI_MSGBOX_MSG_FIFO(0, SUN55I_CHANS_PER_PROC - 1)) {
 		u32 *count = mock_fifo_count(r);
 
+		fix->fifo_reads++;
 		if (!fix->fifo_stuck && (*count & MSG_NUM_MASK))
 			(*count)--;
 	}
@@ -353,9 +272,6 @@ static void test_functional_last_tx_done_sweep(struct kunit *test)
 		mock_write_reg(fix, 3, reg_idx, count);
 		KUNIT_EXPECT_FALSE(test, sun55i_msgbox_chan_ops.last_tx_done(&fix->chans[8]));
 	}
-
-	/* Timer mode never touches the write IRQ */
-	KUNIT_EXPECT_EQ(test, mock_read_reg(fix, 3, SUNXI_MSGBOX_WRITE_IRQ_ENABLE(2) / 4), 0U);
 }
 
 static void test_functional_send_data_refuses_full_fifo(struct kunit *test)
@@ -374,6 +290,9 @@ static void test_functional_send_data_refuses_full_fifo(struct kunit *test)
 	mock_write_reg(fix, 3, SUNXI_MSGBOX_MSG_STATUS(2, 1) / 4, SUN55I_FIFO_MAX - 1);
 	KUNIT_EXPECT_EQ(test, sun55i_msgbox_chan_ops.send_data(&fix->chans[9], &val), 0);
 	KUNIT_EXPECT_EQ(test, mock_read_reg(fix, 3, fifo), val);
+
+	/* Timer mode: neither path arms the write IRQ */
+	KUNIT_EXPECT_EQ(test, mock_read_reg(fix, 3, SUNXI_MSGBOX_WRITE_IRQ_ENABLE(2) / 4), 0U);
 }
 
 /* Write IRQ mode: fixture channels wired to the mailbox core's txdone path */
@@ -549,9 +468,10 @@ static void test_functional_startup_capped_at_fifo_max(struct kunit *test)
 	mock_write_reg(fix, 0, msg_stat_idx, 15);
 	mock_write_reg(fix, 0, fifo_idx, 0xCAFEBABE);
 
-	/* Must terminate after SUN55I_FIFO_MAX reads and return 0 */
+	/* Must stop after SUN55I_FIFO_MAX reads and return 0 */
 	ret = sun55i_msgbox_chan_ops.startup(&fix->chans[8]);
 	KUNIT_EXPECT_EQ(test, ret, 0);
+	KUNIT_EXPECT_EQ(test, fix->fifo_reads, SUN55I_FIFO_MAX);
 }
 
 static void test_functional_shutdown_flushes_and_bounds(struct kunit *test)
@@ -743,43 +663,6 @@ static void test_irq_channel_crosstalk_isolation(struct kunit *test)
 	}
 }
 
-static void test_irq_all_three_routes_simultaneous(struct kunit *test)
-{
-	struct mock_msgbox_fixture *fix = create_mock_fixture(test);
-	irqreturn_t ret;
-
-	/* Port 0: Channel 0 (CPUS) */
-	mock_write_reg(fix, 0, SUNXI_MSGBOX_READ_IRQ_ENABLE(0) / 4, RD_IRQ_EN_BIT(0));
-	mock_write_reg(fix, 0, SUNXI_MSGBOX_READ_IRQ_STATUS(0) / 4, RD_IRQ_PEND_BIT(0));
-	mock_write_reg(fix, 0, SUNXI_MSGBOX_MSG_STATUS(0, 0) / 4, 1);
-	mock_write_reg(fix, 0, SUNXI_MSGBOX_MSG_FIFO(0, 0) / 4, 0x11110001);
-
-	/* Port 1: Channel 4 (DSP) */
-	mock_write_reg(fix, 0, SUNXI_MSGBOX_READ_IRQ_ENABLE(1) / 4, RD_IRQ_EN_BIT(0));
-	mock_write_reg(fix, 0, SUNXI_MSGBOX_READ_IRQ_STATUS(1) / 4, RD_IRQ_PEND_BIT(0));
-	mock_write_reg(fix, 0, SUNXI_MSGBOX_MSG_STATUS(1, 0) / 4, 1);
-	mock_write_reg(fix, 0, SUNXI_MSGBOX_MSG_FIFO(1, 0) / 4, 0x22220001);
-
-	/* Port 2: Channel 8 (RV) */
-	mock_write_reg(fix, 0, SUNXI_MSGBOX_READ_IRQ_ENABLE(2) / 4, RD_IRQ_EN_BIT(0));
-	mock_write_reg(fix, 0, SUNXI_MSGBOX_READ_IRQ_STATUS(2) / 4, RD_IRQ_PEND_BIT(0));
-	mock_write_reg(fix, 0, SUNXI_MSGBOX_MSG_STATUS(2, 0) / 4, 1);
-	mock_write_reg(fix, 0, SUNXI_MSGBOX_MSG_FIFO(2, 0) / 4, 0x33330001);
-
-	ret = sun55i_msgbox_irq(0, &fix->mbox);
-	KUNIT_EXPECT_EQ(test, ret, IRQ_HANDLED);
-
-	/* All three destinations serviced cleanly in one ISR pass */
-	KUNIT_EXPECT_EQ(test, fix->sinks[0].count, 1);
-	KUNIT_EXPECT_EQ(test, fix->sinks[0].last_msg, 0x11110001U);
-
-	KUNIT_EXPECT_EQ(test, fix->sinks[4].count, 1);
-	KUNIT_EXPECT_EQ(test, fix->sinks[4].last_msg, 0x22220001U);
-
-	KUNIT_EXPECT_EQ(test, fix->sinks[8].count, 1);
-	KUNIT_EXPECT_EQ(test, fix->sinks[8].last_msg, 0x33330001U);
-}
-
 static void test_irq_disabled_channel_ignored(struct kunit *test)
 {
 	struct mock_msgbox_fixture *fix = create_mock_fixture(test);
@@ -825,20 +708,20 @@ static void test_irq_multi_port_burst_interleaved(struct kunit *test)
 	ret = sun55i_msgbox_irq(0, &fix->mbox);
 	KUNIT_EXPECT_EQ(test, ret, IRQ_HANDLED);
 
-	/* Check deliveries to respective sinks */
+	/* Each route's messages reach its own channel, all in one pass */
 	KUNIT_EXPECT_EQ(test, fix->sinks[0].count, 2);
+	KUNIT_EXPECT_EQ(test, fix->sinks[0].last_msg, 0xAA01U);
 	KUNIT_EXPECT_EQ(test, fix->sinks[4].count, 2);
+	KUNIT_EXPECT_EQ(test, fix->sinks[4].last_msg, 0xBB01U);
 	KUNIT_EXPECT_EQ(test, fix->sinks[8].count, 2);
+	KUNIT_EXPECT_EQ(test, fix->sinks[8].last_msg, 0xCC01U);
 }
 
 /* =============== Test Suite Registration =============== */
 
 static struct kunit_case sun55i_msgbox_cases[] = {
 	/* Routing Table Tests */
-	KUNIT_CASE(test_chan_to_route_cpus_all),
-	KUNIT_CASE(test_chan_to_route_dsp_all),
-	KUNIT_CASE(test_chan_to_route_rv_all),
-	KUNIT_CASE(test_chan_to_route_boundary_limits),
+	KUNIT_CASE(test_chan_to_route_all),
 	KUNIT_CASE(test_chan_to_route_invalid_channels),
 	/* Functional Driver Ops Tests */
 	KUNIT_CASE(test_functional_send_data_all_twelve_channels),
@@ -861,7 +744,6 @@ static struct kunit_case sun55i_msgbox_cases[] = {
 	KUNIT_CASE(test_irq_multi_port_burst_interleaved),
 	KUNIT_CASE(test_irq_fifo_drain_capped_at_max),
 	KUNIT_CASE(test_irq_channel_crosstalk_isolation),
-	KUNIT_CASE(test_irq_all_three_routes_simultaneous),
 	/* TX done by write IRQ ("allwinner,tx-done-irq") */
 	KUNIT_CASE(test_tx_irq_armed_after_every_send),
 	KUNIT_CASE(test_tx_irq_handler_disarms_and_acks),
