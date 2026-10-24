@@ -42,6 +42,11 @@ static const struct sunxi_rproc_att sun55i_rproc_att[] = {
 	{ SUN55I_SRAM_SPACE1_SYS,  SUN55I_SRAM_SPACE1_SYS, SUN55I_SRAM_SPACE1_SIZE, ATT_IOMEM },
 };
 
+static const struct sunxi_rproc_att sun60i_rproc_att[] = {
+	/* System SRAM A2 is seen 1:1 at 0x00040000 by both host and E902 */
+	{ SUN60I_SRAM_A2_SYS,      SUN60I_SRAM_A2_SYS,     SUN60I_SRAM_A2_SIZE,     ATT_IOMEM },
+};
+
 VISIBLE_IF_KUNIT
 const struct sunxi_rproc_cfg sun55i_riscv_cfg = {
 	.name = "XuanTie E906 RISC-V",
@@ -50,6 +55,15 @@ const struct sunxi_rproc_cfg sun55i_riscv_cfg = {
 	.boot_reg_offset = E906_STA_ADD_REG,
 };
 EXPORT_SYMBOL_IF_KUNIT(sun55i_riscv_cfg);
+
+VISIBLE_IF_KUNIT
+const struct sunxi_rproc_cfg sun60i_e902_cfg = {
+	.name = "XuanTie E902 RISC-V",
+	.att = sun60i_rproc_att,
+	.att_size = ARRAY_SIZE(sun60i_rproc_att),
+	.boot_reg_offset = E902_STA_ADD_REG,
+};
+EXPORT_SYMBOL_IF_KUNIT(sun60i_e902_cfg);
 
 static void sunxi_rproc_vq_work(struct work_struct *work)
 {
@@ -124,16 +138,20 @@ int sunxi_rproc_prepare(struct rproc *rproc)
 		goto err_pm_put;
 	}
 
-	ret = reset_control_deassert(priv->rst_sram);
-	if (ret) {
-		dev_err(priv->dev, "failed to deassert sram reset: %d\n", ret);
-		goto err_assert_cfg;
+	if (priv->rst_sram) {
+		ret = reset_control_deassert(priv->rst_sram);
+		if (ret) {
+			dev_err(priv->dev, "failed to deassert sram reset: %d\n", ret);
+			goto err_assert_cfg;
+		}
 	}
 
-	ret = reset_control_deassert(priv->rst_debug);
-	if (ret) {
-		dev_err(priv->dev, "failed to deassert debug reset: %d\n", ret);
-		goto err_assert_sram;
+	if (priv->rst_debug) {
+		ret = reset_control_deassert(priv->rst_debug);
+		if (ret) {
+			dev_err(priv->dev, "failed to deassert debug reset: %d\n", ret);
+			goto err_assert_sram;
+		}
 	}
 
 	/* 2. Enable interconnect bus and SRAM clocks */
@@ -143,10 +161,12 @@ int sunxi_rproc_prepare(struct rproc *rproc)
 		goto err_assert_debug;
 	}
 
-	ret = clk_prepare_enable(priv->clk_sram);
-	if (ret) {
-		dev_err(priv->dev, "failed to enable sram clock: %d\n", ret);
-		goto err_disable_bus;
+	if (priv->clk_sram) {
+		ret = clk_prepare_enable(priv->clk_sram);
+		if (ret) {
+			dev_err(priv->dev, "failed to enable sram clock: %d\n", ret);
+			goto err_disable_bus;
+		}
 	}
 
 	/* 3. Enable core clock */
@@ -157,15 +177,19 @@ int sunxi_rproc_prepare(struct rproc *rproc)
 	}
 
 	/* 4. Switch SRAM A3_2 (SRAM space 1) to the RISC-V core: REMAP bit 1 */
-	remap_val = readl(priv->remap_va) | SUNXI_REMAP_SRAMA3_2_BIT;
-	writel(remap_val, priv->remap_va);
-	readl(priv->remap_va);
+	if (priv->remap_va) {
+		remap_val = readl(priv->remap_va) | SUNXI_REMAP_SRAMA3_2_BIT;
+		writel(remap_val, priv->remap_va);
+		readl(priv->remap_va);
+	}
 
 	/*
 	 * 5. Cleanly clear Dedicated Local SRAM and Switchable SRAM.
 	 */
-	memset_io(priv->r_sram_va, 0, priv->r_sram_size);
-	memset_io(priv->r_sram1_va, 0, priv->r_sram1_size);
+	if (priv->r_sram_va)
+		memset_io(priv->r_sram_va, 0, priv->r_sram_size);
+	if (priv->r_sram1_va)
+		memset_io(priv->r_sram1_va, 0, priv->r_sram1_size);
 
 	/* rproc_resource_cleanup() frees rproc->carveouts after every run */
 	for (i = 0; i < priv->num_rmem; i++)
@@ -174,13 +198,16 @@ int sunxi_rproc_prepare(struct rproc *rproc)
 	return 0;
 
 err_disable_sram_clk:
-	clk_disable_unprepare(priv->clk_sram);
+	if (priv->clk_sram)
+		clk_disable_unprepare(priv->clk_sram);
 err_disable_bus:
 	clk_disable_unprepare(priv->clk_bus);
 err_assert_debug:
-	reset_control_assert(priv->rst_debug);
+	if (priv->rst_debug)
+		reset_control_assert(priv->rst_debug);
 err_assert_sram:
-	reset_control_assert(priv->rst_sram);
+	if (priv->rst_sram)
+		reset_control_assert(priv->rst_sram);
 err_assert_cfg:
 	reset_control_assert(priv->rst_cfg);
 err_pm_put:
@@ -197,15 +224,20 @@ int sunxi_rproc_unprepare(struct rproc *rproc)
 {
 	struct sunxi_rproc *priv = rproc->priv;
 
-	writel(readl(priv->remap_va) & ~SUNXI_REMAP_SRAMA3_2_BIT, priv->remap_va);
-	readl(priv->remap_va);
+	if (priv->remap_va) {
+		writel(readl(priv->remap_va) & ~SUNXI_REMAP_SRAMA3_2_BIT, priv->remap_va);
+		readl(priv->remap_va);
+	}
 
 	clk_disable_unprepare(priv->clk_core);
-	clk_disable_unprepare(priv->clk_sram);
+	if (priv->clk_sram)
+		clk_disable_unprepare(priv->clk_sram);
 	clk_disable_unprepare(priv->clk_bus);
 
-	reset_control_assert(priv->rst_debug);
-	reset_control_assert(priv->rst_sram);
+	if (priv->rst_debug)
+		reset_control_assert(priv->rst_debug);
+	if (priv->rst_sram)
+		reset_control_assert(priv->rst_sram);
 	reset_control_assert(priv->rst_cfg);
 
 	pm_runtime_put(priv->dev);
@@ -390,29 +422,35 @@ static int sunxi_rproc_register_mem(struct platform_device *pdev, struct rproc *
 		return dev_err_probe(dev, PTR_ERR(priv->cfg_va), "failed to map 'cfg'\n");
 
 	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "r_sram");
+	if (!res)
+		res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "sram");
+	if (!res)
+		return dev_err_probe(dev, -EINVAL, "missing sram resource\n");
 	priv->r_sram_va = devm_ioremap_resource_wc(dev, res);
 	if (IS_ERR(priv->r_sram_va))
-		return dev_err_probe(dev, PTR_ERR(priv->r_sram_va), "failed to map 'r_sram'\n");
+		return dev_err_probe(dev, PTR_ERR(priv->r_sram_va), "failed to map sram\n");
 	priv->r_sram_phys = res->start;
 	priv->r_sram_size = resource_size(res);
 
 	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "r_sram1");
-	priv->r_sram1_va = devm_ioremap_resource_wc(dev, res);
-	if (IS_ERR(priv->r_sram1_va))
-		return dev_err_probe(dev, PTR_ERR(priv->r_sram1_va), "failed to map 'r_sram1'\n");
-	priv->r_sram1_phys = res->start;
-	priv->r_sram1_size = resource_size(res);
+	if (res) {
+		priv->r_sram1_va = devm_ioremap_resource_wc(dev, res);
+		if (IS_ERR(priv->r_sram1_va))
+			return dev_err_probe(dev, PTR_ERR(priv->r_sram1_va), "failed to map 'r_sram1'\n");
+		priv->r_sram1_phys = res->start;
+		priv->r_sram1_size = resource_size(res);
+	}
 
 	/*
 	 * The remap register sits in the PRCM block and is shared with the DSP,
 	 * so map it without claiming the region.
 	 */
 	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "remap");
-	if (!res)
-		return dev_err_probe(dev, -EINVAL, "missing 'remap' register\n");
-	priv->remap_va = devm_ioremap(dev, res->start, resource_size(res));
-	if (!priv->remap_va)
-		return dev_err_probe(dev, -ENOMEM, "failed to map 'remap'\n");
+	if (res) {
+		priv->remap_va = devm_ioremap(dev, res->start, resource_size(res));
+		if (!priv->remap_va)
+			return dev_err_probe(dev, -ENOMEM, "failed to map 'remap'\n");
+	}
 
 	return 0;
 }
@@ -533,7 +571,7 @@ static int sunxi_rproc_probe(struct platform_device *pdev)
 	if (IS_ERR(priv->clk_core))
 		return dev_err_probe(dev, PTR_ERR(priv->clk_core), "failed to get 'core' clock\n");
 
-	priv->clk_sram = devm_clk_get(dev, "sram");
+	priv->clk_sram = devm_clk_get_optional(dev, "sram");
 	if (IS_ERR(priv->clk_sram))
 		return dev_err_probe(dev, PTR_ERR(priv->clk_sram), "failed to get 'sram' clock\n");
 
@@ -546,11 +584,11 @@ static int sunxi_rproc_probe(struct platform_device *pdev)
 	if (IS_ERR(priv->rst_core))
 		return dev_err_probe(dev, PTR_ERR(priv->rst_core), "failed to get 'core' reset\n");
 
-	priv->rst_sram = devm_reset_control_get_exclusive(dev, "sram");
+	priv->rst_sram = devm_reset_control_get_optional_exclusive(dev, "sram");
 	if (IS_ERR(priv->rst_sram))
 		return dev_err_probe(dev, PTR_ERR(priv->rst_sram), "failed to get 'sram' reset\n");
 
-	priv->rst_debug = devm_reset_control_get_exclusive(dev, "debug");
+	priv->rst_debug = devm_reset_control_get_optional_exclusive(dev, "debug");
 	if (IS_ERR(priv->rst_debug))
 		return dev_err_probe(dev, PTR_ERR(priv->rst_debug),
 				     "failed to get 'debug' reset\n");
@@ -648,6 +686,7 @@ static const struct of_device_id sunxi_rproc_of_match[] = {
 	 * Use a single compatible string per upstream DT binding policy.
 	 */
 	{ .compatible = "allwinner,sun55i-a523-rproc", .data = &sun55i_riscv_cfg },
+	{ .compatible = "allwinner,sun60i-a733-rproc", .data = &sun60i_e902_cfg },
 	{ /* sentinel */ }
 };
 MODULE_DEVICE_TABLE(of, sunxi_rproc_of_match);

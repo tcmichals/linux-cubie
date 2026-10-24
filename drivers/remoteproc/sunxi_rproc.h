@@ -25,6 +25,10 @@
 #define SUN55I_SRAM_SPACE1_SYS		0x072c0000UL
 #define SUN55I_SRAM_SPACE1_SIZE		0x00040000UL /* 256 KB */
 
+/* Allwinner A733 (sun60i) System Bus (Host Physical) Addresses & Window Sizes */
+#define SUN60I_SRAM_A2_SYS		0x00040000UL
+#define SUN60I_SRAM_A2_SIZE		0x00034000UL /* 208 KB (0x00040000 - 0x00073FFF) */
+
 /* Address Translation Table flags */
 #define ATT_IOMEM			BIT(30)
 
@@ -38,6 +42,7 @@ struct sunxi_rproc_att {
 /* XuanTie CFG Block Register Offsets */
 #define E906_CTRL_REG			0x0000
 #define E906_STA_ADD_REG		0x0204
+#define E902_STA_ADD_REG		0x0204
 
 /* Remap Control Register (offset 0x364 in PRCM_R_CCU / MCU_CCU) */
 /* Bit 0: 0 = local RAM for MCU; 1 = share for system */
