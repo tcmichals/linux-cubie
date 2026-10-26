@@ -24,7 +24,6 @@
 #define SUNXI_MSGBOX_READ_IRQ_STATUS(n)		(0x024 + SUNXI_MSGBOX_OFFSET(n))
 #define SUNXI_MSGBOX_WRITE_IRQ_ENABLE(n)	(0x030 + SUNXI_MSGBOX_OFFSET(n))
 #define SUNXI_MSGBOX_WRITE_IRQ_STATUS(n)	(0x034 + SUNXI_MSGBOX_OFFSET(n))
-#define SUNXI_MSGBOX_FIFO_STATUS(n, p)		(0x050 + SUNXI_MSGBOX_OFFSET(n) + 0x4 * (p))
 #define SUNXI_MSGBOX_MSG_STATUS(n, p)		(0x060 + SUNXI_MSGBOX_OFFSET(n) + 0x4 * (p))
 #define SUNXI_MSGBOX_MSG_FIFO(n, p)		(0x070 + SUNXI_MSGBOX_OFFSET(n) + 0x4 * (p))
 #define SUNXI_MSGBOX_WRITE_IRQ_THRESHOLD(n, p)	(0x080 + SUNXI_MSGBOX_OFFSET(n) + 0x4 * (p))
@@ -59,6 +58,8 @@ struct sun55i_msgbox {
 	void __iomem *regs[SUN55I_MAX_PROCESSORS];
 	/* Protects concurrent MMIO register access */
 	spinlock_t lock;
+	/* Host bank interrupt: messages received by this processor */
+	int irq;
 	/* "allwinner,tx-done-irq": TX done by the write IRQ, else polled */
 	bool tx_done_irq;
 	struct sun55i_tx_irq tx_irqs[SUN55I_MAX_PROCESSORS];
@@ -66,6 +67,9 @@ struct sun55i_msgbox {
 	unsigned long tx_irq_held;
 	/* Serialises tx_irqs[].users and the matching request_irq()/free_irq() */
 	struct mutex tx_irq_lock;
+	/* Timer mode: channels whose message waits for room in a full FIFO */
+	unsigned long tx_held;
+	u32 tx_held_msg[SUN55I_NUM_CHANS];
 };
 
 #if IS_ENABLED(CONFIG_KUNIT)
