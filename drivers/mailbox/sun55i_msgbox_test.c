@@ -6,8 +6,8 @@
  *  - the 12-channel routing table and out-of-range channel numbers
  *  - send_data, last_tx_done, peek_data, startup and shutdown; in timer
  *    mode a message for a full FIFO is held until last_tx_done() has room
- *  - TX done by write IRQ: armed only while the FIFO is full, the handler
- *    disarms, acks and ignores channels it did not arm
+ *  - TX done by write IRQ: armed after every send (and for a full FIFO),
+ *    the handler disarms, acks and ignores channels it did not arm
  *  - the interrupt handler: delivery after the drain, outside the lock (a
  *    client may reply from its callback), per-channel isolation, several
  *    channels and ports in one pass, and the FIFO_MAX drain bound

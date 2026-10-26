@@ -135,8 +135,9 @@ irqreturn_t sun55i_msgbox_irq(int irq, void *dev_id)
 
 			/*
 			 * Outside the lock: a client may send from its rx
-			 * callback, and send_data() takes the lock. shutdown()
-			 * waits for this handler before the channel goes away.
+			 * callback, and in write IRQ mode send_data() takes the
+			 * lock. shutdown() waits for this handler before the
+			 * channel goes away.
 			 */
 			for (i = 0; i < count; i++)
 				mbox_chan_received_data(chan, &msgs[i]);
@@ -312,6 +313,8 @@ static int sun55i_msgbox_send_data(struct mbox_chan *chan, void *data)
 			return -EBUSY;
 		}
 		mbox->tx_held_msg[n] = msg;
+		/* The poll timer may run on another CPU: message before flag */
+		smp_mb__before_atomic();
 		set_bit(n, &mbox->tx_held);
 		return 0;
 	}
@@ -396,13 +399,17 @@ static void sun55i_msgbox_shutdown(struct mbox_chan *chan)
 	/* A message held for a full FIFO is dropped with the channel */
 	clear_bit(n, &mbox->tx_held);
 
-	/*
-	 * The core also calls shutdown() when startup() failed; release the
-	 * line only if this channel's startup() got it.
-	 */
+	/* Release the line only if this channel's startup() got it */
 	if (test_and_clear_bit(n, &mbox->tx_irq_held)) {
 		sun55i_msgbox_tx_irq_enable(mbox, remote_id, remote_n, p, false);
 		sun55i_msgbox_tx_irq_put(mbox, remote_id);
+		/*
+		 * A TX-done handler that was already running submits the next
+		 * message through send_data(), which arms the IRQ again. It has
+		 * finished now (free_irq() or synchronize_irq() above), so
+		 * disarm once more.
+		 */
+		sun55i_msgbox_tx_irq_enable(mbox, remote_id, remote_n, p, false);
 	}
 
 	sun55i_msgbox_rx_flush(mbox, local_n, p);
@@ -514,10 +521,23 @@ static int sun55i_msgbox_probe(struct platform_device *pdev)
 	if (ret)
 		return ret;
 
-	/* Disable all read IRQs and clear status */
+	/*
+	 * Disable all read IRQs and clear status, and disarm our write IRQs in
+	 * the remote banks, which an earlier kernel or bind may have left on.
+	 */
 	for (local_n = 0; local_n < SUN55I_NUM_ROUTES; local_n++) {
+		const struct sun55i_route *route = &sun55i_msgbox_arm_routes[local_n];
+		void __iomem *wr_en = mbox->regs[route->remote_id] +
+				      SUNXI_MSGBOX_WRITE_IRQ_ENABLE(route->remote_n);
+		u32 val = sun55i_readl(wr_en);
+		int p;
+
 		sun55i_writel(0, mbox->regs[0] + SUNXI_MSGBOX_READ_IRQ_ENABLE(local_n));
 		sun55i_writel(U32_MAX, mbox->regs[0] + SUNXI_MSGBOX_READ_IRQ_STATUS(local_n));
+
+		for (p = 0; p < SUN55I_CHANS_PER_PROC; p++)
+			val &= ~WR_IRQ_EN_BIT(p);
+		sun55i_writel(val, wr_en);
 	}
 
 	/* The ARM bank interrupt signals messages received by this processor */
