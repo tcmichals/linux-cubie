@@ -161,9 +161,7 @@ int sunxi_rproc_prepare(struct rproc *rproc)
 	writel(remap_val, priv->remap_va);
 	readl(priv->remap_va);
 
-	/*
-	 * 5. Cleanly clear Dedicated Local SRAM and Switchable SRAM.
-	 */
+	/* 5. Clear both SRAM spaces */
 	memset_io(priv->r_sram_va, 0, priv->r_sram_size);
 	memset_io(priv->r_sram1_va, 0, priv->r_sram1_size);
 
@@ -524,7 +522,7 @@ static int sunxi_rproc_probe(struct platform_device *pdev)
 	if (ret)
 		return ret;
 
-	/* 1. Clocks */
+	/* Clocks */
 	priv->clk_bus = devm_clk_get(dev, "bus");
 	if (IS_ERR(priv->clk_bus))
 		return dev_err_probe(dev, PTR_ERR(priv->clk_bus), "failed to get 'bus' clock\n");
@@ -537,7 +535,7 @@ static int sunxi_rproc_probe(struct platform_device *pdev)
 	if (IS_ERR(priv->clk_sram))
 		return dev_err_probe(dev, PTR_ERR(priv->clk_sram), "failed to get 'sram' clock\n");
 
-	/* 2. Resets */
+	/* Resets */
 	priv->rst_cfg = devm_reset_control_get_exclusive(dev, "cfg");
 	if (IS_ERR(priv->rst_cfg))
 		return dev_err_probe(dev, PTR_ERR(priv->rst_cfg), "failed to get 'cfg' reset\n");
@@ -555,17 +553,17 @@ static int sunxi_rproc_probe(struct platform_device *pdev)
 		return dev_err_probe(dev, PTR_ERR(priv->rst_debug),
 				     "failed to get 'debug' reset\n");
 
-	/* 3. Memory Windows (TCM, SRAM, CFG) */
+	/* Configuration block, both SRAM spaces and the remap register */
 	ret = sunxi_rproc_register_mem(pdev, rproc);
 	if (ret)
 		return ret;
 
-	/* 4. Dynamic Reserved Memory Carveouts & DMA Pools from Device Tree */
+	/* memory-region: DMA pool and carveouts */
 	ret = sunxi_rproc_parse_memory_regions(priv);
 	if (ret)
 		goto err_mem_release;
 
-	/* 5. Optional Hardware Crash Notification IRQ */
+	/* Optional crash interrupt */
 	crash_irq = platform_get_irq_byname_optional(pdev, "crash");
 	if (crash_irq > 0) {
 		ret = devm_request_threaded_irq(dev, crash_irq, NULL,
@@ -579,7 +577,7 @@ static int sunxi_rproc_probe(struct platform_device *pdev)
 			priv->crash_irq = crash_irq;
 	}
 
-	/* 6. Mailbox IPC Client (optional: allows standalone mode if omitted) */
+	/* Mailbox (optional: without it the core runs standalone) */
 	INIT_WORK(&priv->vq_work, sunxi_rproc_vq_work);
 
 	if (dev->of_node && of_property_present(dev->of_node, "mboxes")) {

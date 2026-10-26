@@ -36,7 +36,6 @@ struct sunxi_rproc_att {
 };
 
 /* XuanTie CFG Block Register Offsets */
-#define E906_CTRL_REG			0x0000
 #define E906_STA_ADD_REG		0x0204
 
 /* Remap Control Register (offset 0x364 in PRCM_R_CCU / MCU_CCU) */
