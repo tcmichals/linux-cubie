@@ -328,7 +328,7 @@ static void test_prepare_and_unprepare_remap(struct kunit *test)
 	use_mmio_mocks(ctx);
 
 	/* Bit 0 belongs to the DSP (reset value 1): only bit 1 may change */
-	ctx->mock_remap_reg = SUNXI_REMAP_MCU_RAM_BIT;
+	writel(SUNXI_REMAP_MCU_RAM_BIT, ctx->priv.remap_va);
 
 	/* prepare() should set SUNXI_REMAP_SRAMA3_2_BIT (bit 1) */
 	ret = sunxi_rproc_prepare(&ctx->rproc);
@@ -468,6 +468,11 @@ static void test_kick_payload_outlives_call(struct kunit *test)
 	KUNIT_EXPECT_FALSE(test, object_is_on_stack(ctx->kick_data[0]));
 	KUNIT_EXPECT_FALSE(test, object_is_on_stack(ctx->kick_data[1]));
 
+	/* A vring without a payload is refused, not sent as another vring */
+	sunxi_rproc_kick(&ctx->rproc, 2);
+	sunxi_rproc_kick(&ctx->rproc, -1);
+	KUNIT_EXPECT_EQ(test, ctx->kick_count, 2);
+
 	/* No mailbox channel: kick is a no-op */
 	ctx->priv.mbox_chan = NULL;
 	sunxi_rproc_kick(&ctx->rproc, 0);
@@ -477,8 +482,8 @@ static void test_kick_payload_outlives_call(struct kunit *test)
 /* ==================== Mailbox rx callback ==================== */
 
 /*
- * The mailbox rx callback runs in hardirq context with the msgbox lock held,
- * and the rpmsg receive path takes mutexes. The callback must only queue the
+ * The mailbox rx callback runs in hardirq context, and the rpmsg receive
+ * path takes mutexes. The callback must only queue the
  * vring work; the work must run in a kworker (regression test for calling
  * rproc_vq_interrupt() from the callback).
  */

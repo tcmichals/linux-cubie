@@ -396,9 +396,11 @@ config SUNXI_REMOTEPROC_KUNIT_TEST
 	depends on SUNXI_REMOTEPROC && KUNIT && (ARM64 || COMPILE_TEST) && !UML
 	default KUNIT_ALL_TESTS
 	help
-	  KUnit tests for the Allwinner sunxi_rproc driver, covering
-	  da_to_va() address translation logic and boundary conditions
-	  across dedicated SRAM spaces, DRAM carveouts, and trace regions.
+	  KUnit tests for the Allwinner sunxi_rproc driver: da_to_va()
+	  address translation for both SRAM spaces and DRAM carveouts,
+	  prepare()/unprepare() (remap bit, SRAM clear, carveouts), start()
+	  boot address programming, kicks, and the rx callback deferring to
+	  a workqueue.
 	  Say Y here to run these tests during boot or via kunit.py.
 
 endif # REMOTEPROC

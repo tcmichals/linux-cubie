@@ -51,12 +51,18 @@ const struct sunxi_rproc_cfg sun55i_riscv_cfg = {
 };
 EXPORT_SYMBOL_IF_KUNIT(sun55i_riscv_cfg);
 
+static int sunxi_rproc_vq_notify(int id, void *ptr, void *data)
+{
+	rproc_vq_interrupt(data, id);
+	return 0;
+}
+
+/* One channel carries all notifications: check every vring */
 static void sunxi_rproc_vq_work(struct work_struct *work)
 {
 	struct sunxi_rproc *priv = container_of(work, struct sunxi_rproc, vq_work);
 
-	rproc_vq_interrupt(priv->rproc, 0);
-	rproc_vq_interrupt(priv->rproc, 1);
+	idr_for_each(&priv->rproc->notifyids, sunxi_rproc_vq_notify, priv->rproc);
 }
 
 /*
@@ -117,7 +123,17 @@ int sunxi_rproc_prepare(struct rproc *rproc)
 		goto err_free_mem;
 	}
 
-	/* 1. Deassert the configuration, SRAM and debug resets (core stays in reset) */
+	/*
+	 * 1. Hold the core in reset (a bootloader or an earlier kernel may
+	 * have left it running), then deassert the configuration, SRAM and
+	 * debug resets.
+	 */
+	ret = reset_control_assert(priv->rst_core);
+	if (ret) {
+		dev_err(priv->dev, "failed to assert core reset: %d\n", ret);
+		goto err_pm_put;
+	}
+
 	ret = reset_control_deassert(priv->rst_cfg);
 	if (ret) {
 		dev_err(priv->dev, "failed to deassert cfg reset: %d\n", ret);
@@ -266,7 +282,7 @@ static int sunxi_rproc_stop(struct rproc *rproc)
  * and reads it later from the poll timer. Use immutable static storage, one
  * entry per vring, so nothing is rewritten while queued.
  */
-static const u32 sunxi_rproc_kick_msg[2] = { 0, 1 };
+static const u32 sunxi_rproc_kick_msg[] = { 0, 1 };
 
 VISIBLE_IF_KUNIT
 void sunxi_rproc_kick(struct rproc *rproc, int vqid)
@@ -277,8 +293,13 @@ void sunxi_rproc_kick(struct rproc *rproc, int vqid)
 	if (!priv->mbox_chan)
 		return;
 
+	if (vqid < 0 || vqid >= ARRAY_SIZE(sunxi_rproc_kick_msg)) {
+		dev_err_ratelimited(priv->dev, "no kick payload for vring %d\n", vqid);
+		return;
+	}
+
 	ret = mbox_send_message(priv->mbox_chan,
-				(void *)&sunxi_rproc_kick_msg[vqid & 1]);
+				(void *)&sunxi_rproc_kick_msg[vqid]);
 	if (ret < 0)
 		dev_err_ratelimited(priv->dev, "failed to send mailbox kick: %d\n", ret);
 }
@@ -491,7 +512,8 @@ static int sunxi_rproc_probe(struct platform_device *pdev)
 	int crash_irq;
 	int ret;
 
-	of_property_read_string(dev->of_node, "firmware-name", &fw_name);
+	/* firmware-name is optional; keep the default without it */
+	rproc_of_parse_firmware(dev, 0, &fw_name);
 
 	rproc = devm_rproc_alloc(dev, dev_name(dev), &sunxi_rproc_ops,
 				 fw_name, sizeof(*priv));
@@ -571,10 +593,14 @@ static int sunxi_rproc_probe(struct platform_device *pdev)
 						IRQF_ONESHOT | IRQF_NO_AUTOEN,
 						"sunxi-rproc-crash",
 						priv);
-		if (ret)
-			dev_warn(dev, "failed to request crash IRQ %d: %d\n", crash_irq, ret);
-		else
-			priv->crash_irq = crash_irq;
+		if (ret) {
+			dev_err_probe(dev, ret, "failed to request crash IRQ\n");
+			goto err_mem_release;
+		}
+		priv->crash_irq = crash_irq;
+	} else if (crash_irq != -ENXIO) {
+		ret = dev_err_probe(dev, crash_irq, "failed to get crash IRQ\n");
+		goto err_mem_release;
 	}
 
 	/* Mailbox (optional: without it the core runs standalone) */
@@ -660,7 +686,6 @@ static struct platform_driver sunxi_rproc_driver = {
 };
 module_platform_driver(sunxi_rproc_driver);
 
-MODULE_AUTHOR("Allwinner Technology Co., Ltd.");
 MODULE_AUTHOR("Tim Michals <tcmichals@gmail.com>");
 MODULE_DESCRIPTION("Allwinner XuanTie E906 RISC-V Remoteproc Driver");
 MODULE_LICENSE("GPL");
