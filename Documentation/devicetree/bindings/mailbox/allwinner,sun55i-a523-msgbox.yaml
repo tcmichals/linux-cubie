@@ -68,7 +68,6 @@ properties:
       - const: rv
 
   interrupts:
-    minItems: 1
     items:
       - description: Cortex-A55 bank read interrupt, messages for the host
       - description: HiFi4 DSP bank write interrupt for the host
@@ -76,7 +75,6 @@ properties:
       - description: XuanTie RISC-V bank write interrupt for the host
 
   interrupt-names:
-    minItems: 1
     items:
       - const: arm
       - const: dsp
@@ -89,8 +87,8 @@ properties:
       Signal TX done with the write interrupt of the receiver's bank instead
       of polling. A message is done once the receiver's FIFO has room for the
       next one either way; the write interrupt is raised while the FIFO has
-      room. Without this property a full FIFO is polled. Needs the interrupts
-      of the remote banks.
+      room. Without this property a full FIFO is polled. Received messages
+      use the host bank read interrupt either way.
 
   '#mbox-cells':
     const: 1
@@ -107,17 +105,8 @@ required:
   - resets
   - reset-names
   - interrupts
+  - interrupt-names
   - '#mbox-cells'
-
-if:
-  required:
-    - allwinner,tx-done-irq
-then:
-  properties:
-    interrupts:
-      minItems: 4
-    interrupt-names:
-      minItems: 4
 
 additionalProperties: false
 
