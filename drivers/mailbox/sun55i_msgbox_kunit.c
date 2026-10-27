@@ -87,6 +87,8 @@ struct mock_msgbox_fixture {
 	int fifo_reads;
 	/* Next write that disarms a channel's write IRQ is undone, as a handler would */
 	bool rearm_on_disarm;
+	/* WRITE_IRQ_STATUS reads seen by the stubs, i.e. from the test thread */
+	int wr_status_reads;
 	/* Every bit ever written to the host bank's READ_IRQ_ENABLE, per port */
 	u32 rd_en_written[SUN55I_NUM_ROUTES];
 	/* Message FIFOs: bank, port n, channel p */
@@ -222,8 +224,10 @@ static u32 mock_readl(void __iomem *addr)
 		return val;
 	}
 
-	if (reg == SUN55I_MSGBOX_WRITE_IRQ_STATUS(0))
+	if (reg == SUN55I_MSGBOX_WRITE_IRQ_STATUS(0)) {
+		fix->wr_status_reads++;
 		mock_raise_write_pending(fix, bank, n, r);
+	}
 
 	return *r;
 }
@@ -1129,6 +1133,22 @@ static void mock_startup(struct kunit *test, struct mbox_chan *chan)
 	KUNIT_ASSERT_EQ(test, kunit_add_action_or_reset(test, mock_shutdown_action, chan), 0);
 }
 
+/*
+ * Fire the TX-done line and wait for its handler. With forced IRQ threading
+ * (PREEMPT_RT, threadirqs) the handler runs in an IRQ thread, where the MMIO
+ * stubs, which follow the test thread, do not apply: skip the test then.
+ */
+static void fire_tx_irq(struct kunit *test, int irq)
+{
+	struct mock_msgbox_fixture *fix = test->priv;
+	int reads = fix->wr_status_reads;
+
+	KUNIT_ASSERT_EQ(test, generic_handle_irq_safe(irq), 0);
+	synchronize_irq(irq);
+	if (fix->wr_status_reads == reads)
+		kunit_skip(test, "TX-done handler ran in an IRQ thread (forced threading)");
+}
+
 static void test_tx_irq_handler_reports_tx_done(struct kunit *test)
 {
 	struct mock_msgbox_fixture *fix = create_tx_line_fixture(test);
@@ -1148,7 +1168,7 @@ static void test_tx_irq_handler_reports_tx_done(struct kunit *test)
 		       SUN55I_MSGBOX_WR_IRQ_EN_BIT(1));
 
 	/* Through the line startup() requested: the core hears TX done */
-	KUNIT_ASSERT_EQ(test, generic_handle_irq_safe(rv->irq), 0);
+	fire_tx_irq(test, rv->irq);
 	KUNIT_EXPECT_EQ(test, tc->done, 1);
 	KUNIT_EXPECT_EQ(test, tc->last_r, 0);
 	KUNIT_EXPECT_PTR_EQ(test, fix->chans[9].active_req, MBOX_NO_MSG);
@@ -1183,7 +1203,7 @@ static void test_tx_irq_refused_message_resent(struct kunit *test)
 
 	/* The E906 reads one: the IRQ makes the core send it again */
 	mock_fifo_pop(fix, SUN55I_PROC_RV, 2, 1);
-	KUNIT_ASSERT_EQ(test, generic_handle_irq_safe(rv->irq), 0);
+	fire_tx_irq(test, rv->irq);
 	KUNIT_EXPECT_EQ(test, fix->chans[9].msg_count, 0U);
 	KUNIT_EXPECT_PTR_EQ(test, fix->chans[9].active_req, &msg);
 	for (i = 1; i < SUN55I_FIFO_MAX; i++)
@@ -1191,7 +1211,7 @@ static void test_tx_irq_refused_message_resent(struct kunit *test)
 	KUNIT_EXPECT_EQ(test, mock_fifo_pop(fix, SUN55I_PROC_RV, 2, 1), msg);
 
 	/* The resend armed the IRQ again; it now reports the message done */
-	KUNIT_ASSERT_EQ(test, generic_handle_irq_safe(rv->irq), 0);
+	fire_tx_irq(test, rv->irq);
 	KUNIT_EXPECT_EQ(test, tc->done, 1);
 	KUNIT_EXPECT_PTR_EQ(test, fix->chans[9].active_req, MBOX_NO_MSG);
 }
