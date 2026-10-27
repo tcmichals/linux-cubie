@@ -6,14 +6,16 @@
  * Copyright (C) 2026 Tim Michals <tcmichals@gmail.com>
  * Based on vendor sunxi-rproc driver by Allwinner Technology Co., Ltd.
  *
- * CCU-integrated remoteproc driver for XuanTie RISC-V co-processors on
- * Allwinner SoCs (T527/A527/A523: E906), running from on-chip SRAM and DRAM.
+ * Loads and runs firmware on the XuanTie E906 RISC-V core of the Allwinner
+ * A523, A527 and T527, from its two SRAMs and from DRAM carveouts.
  */
 
 #include <kunit/static_stub.h>
 #include <kunit/visibility.h>
 #include <linux/clk.h>
+#include <linux/elf.h>
 #include <linux/err.h>
+#include <linux/firmware.h>
 #include <linux/interrupt.h>
 #include <linux/io.h>
 #include <linux/mailbox_client.h>
@@ -27,6 +29,7 @@
 #include <linux/reset.h>
 #include <linux/slab.h>
 
+#include "remoteproc_elf_helpers.h"
 #include "remoteproc_internal.h"
 #include "sunxi_rproc.h"
 
@@ -338,7 +341,7 @@ void sunxi_rproc_kick(struct rproc *rproc, int vqid)
 EXPORT_SYMBOL_IF_KUNIT(sunxi_rproc_kick);
 
 static int sunxi_rproc_da_to_sys(struct sunxi_rproc *priv, u64 da,
-				 size_t len, u64 *sys, bool *is_iomem)
+				 size_t len, u64 *sys, bool *iomem)
 {
 	const struct sunxi_rproc_cfg *cfg = priv->cfg;
 	size_t i;
@@ -349,8 +352,7 @@ static int sunxi_rproc_da_to_sys(struct sunxi_rproc *priv, u64 da,
 
 			if (da >= att->da && (da + len) <= (att->da + att->size)) {
 				*sys = att->sa + (da - att->da);
-				if (is_iomem)
-					*is_iomem = !!(att->flags & ATT_IOMEM);
+				*iomem = !!(att->flags & ATT_IOMEM);
 				return 0;
 			}
 		}
@@ -363,6 +365,7 @@ VISIBLE_IF_KUNIT
 void *sunxi_rproc_da_to_va(struct rproc *rproc, u64 da, size_t len, bool *is_iomem)
 {
 	struct sunxi_rproc *priv = rproc->priv;
+	bool iomem;
 	u64 sys;
 
 	/*
@@ -381,16 +384,20 @@ void *sunxi_rproc_da_to_va(struct rproc *rproc, u64 da, size_t len, bool *is_iom
 	 * If none of the driver's mapped windows cover it, return NULL
 	 * rather than falling through to compare DA against Host PAs.
 	 */
-	if (sunxi_rproc_da_to_sys(priv, da, len, &sys, is_iomem) == 0) {
+	if (sunxi_rproc_da_to_sys(priv, da, len, &sys, &iomem) == 0) {
+		void __iomem *va = NULL;
+
 		if (priv->r_sram_va && sys >= priv->r_sram_phys &&
 		    (sys + len) <= (priv->r_sram_phys + priv->r_sram_size))
-			return (__force void *)(priv->r_sram_va + (sys - priv->r_sram_phys));
+			va = priv->r_sram_va + (sys - priv->r_sram_phys);
+		else if (priv->r_sram1_va && sys >= priv->r_sram1_phys &&
+			 (sys + len) <= (priv->r_sram1_phys + priv->r_sram1_size))
+			va = priv->r_sram1_va + (sys - priv->r_sram1_phys);
 
-		if (priv->r_sram1_va && sys >= priv->r_sram1_phys &&
-		    (sys + len) <= (priv->r_sram1_phys + priv->r_sram1_size))
-			return (__force void *)(priv->r_sram1_va + (sys - priv->r_sram1_phys));
-
-		return NULL;
+		/* is_iomem is only set for an address that is returned */
+		if (va && is_iomem)
+			*is_iomem = iomem;
+		return (__force void *)va;
 	}
 
 	/*
@@ -400,6 +407,24 @@ void *sunxi_rproc_da_to_va(struct rproc *rproc, u64 da, size_t len, bool *is_iom
 	return NULL;
 }
 EXPORT_SYMBOL_IF_KUNIT(sunxi_rproc_da_to_va);
+
+/* The E906 is RV32: refuse firmware built for another core before it is loaded */
+static int sunxi_rproc_sanity_check(struct rproc *rproc, const struct firmware *fw)
+{
+	int ret;
+
+	ret = rproc_elf_sanity_check(rproc, fw);
+	if (ret)
+		return ret;
+
+	if (fw_elf_get_class(fw) != ELFCLASS32 ||
+	    elf_hdr_get_e_machine(ELFCLASS32, fw->data) != EM_RISCV) {
+		dev_err(&rproc->dev, "firmware is not a 32-bit RISC-V ELF\n");
+		return -EINVAL;
+	}
+
+	return 0;
+}
 
 static int sunxi_rproc_parse_fw(struct rproc *rproc, const struct firmware *fw)
 {
@@ -425,8 +450,7 @@ const struct rproc_ops sunxi_rproc_ops = {
 	.load           = rproc_elf_load_segments,
 	.parse_fw       = sunxi_rproc_parse_fw,
 	.find_loaded_rsc_table = rproc_elf_find_loaded_rsc_table,
-	.sanity_check   = rproc_elf_sanity_check,
-	.coredump       = rproc_coredump,
+	.sanity_check   = sunxi_rproc_sanity_check,
 };
 EXPORT_SYMBOL_IF_KUNIT(sunxi_rproc_ops);
 
@@ -472,7 +496,7 @@ static int sunxi_rproc_parse_memory_regions(struct sunxi_rproc *priv)
 {
 	struct device *dev = priv->dev;
 	struct device_node *np = dev->of_node;
-	int i, count;
+	int i, count, ret;
 
 	count = of_reserved_mem_region_count(np);
 	if (count <= 0)
@@ -481,18 +505,28 @@ static int sunxi_rproc_parse_memory_regions(struct sunxi_rproc *priv)
 		return dev_err_probe(dev, -EINVAL, "too many memory-region entries (%d)\n",
 				     count);
 
-	/* memory-region[0] is the default DMA pool for vrings and vdev buffers */
-	if (!of_reserved_mem_device_init(dev))
+	/*
+	 * memory-region[0] is the default DMA pool for vrings and vdev buffers;
+	 * -ENODEV: it is not a DMA pool (a DT without virtio)
+	 */
+	ret = of_reserved_mem_device_init(dev);
+	if (!ret)
 		priv->has_reserved_mem = true;
+	else if (ret != -ENODEV)
+		return dev_err_probe(dev, ret, "failed to set up the DMA pool\n");
 
 	for (i = 0; i < count; i++) {
 		struct sunxi_rproc_rmem *rmem = &priv->rmem[i];
 		struct resource res;
-		int ret;
 
 		ret = of_reserved_mem_region_to_resource(np, i, &res);
 		if (ret)
 			return dev_err_probe(dev, ret, "invalid memory-region %d\n", i);
+
+		/* The core addresses memory with 32 bits (carveout da is a u32) */
+		if (res.end > U32_MAX)
+			return dev_err_probe(dev, -EINVAL,
+					     "memory-region %d above 4 GiB\n", i);
 
 		if (of_property_read_string_index(np, "memory-region-names", i, &rmem->name))
 			rmem->name = devm_kasprintf(dev, GFP_KERNEL, "rmem%d", i);
@@ -562,6 +596,9 @@ static int sunxi_rproc_probe(struct platform_device *pdev)
 	priv->cfg = of_device_get_match_data(dev);
 	if (!priv->cfg)
 		return -ENODEV;
+
+	/* Crash dumps are 32-bit RISC-V ELF files */
+	rproc_coredump_set_elf_info(rproc, ELFCLASS32, EM_RISCV);
 
 	/*
 	 * The core and its SRAM sit in two PPU power domains. With more than one
@@ -638,7 +675,7 @@ static int sunxi_rproc_probe(struct platform_device *pdev)
 	/* Mailbox (optional: without it the core runs standalone) */
 	INIT_WORK(&priv->vq_work, sunxi_rproc_vq_work);
 
-	if (dev->of_node && of_property_present(dev->of_node, "mboxes")) {
+	if (of_property_present(dev->of_node, "mboxes")) {
 		priv->workqueue = devm_alloc_ordered_workqueue(dev, "%s", WQ_HIGHPRI,
 							       dev_name(dev));
 		if (!priv->workqueue) {
@@ -667,7 +704,7 @@ static int sunxi_rproc_probe(struct platform_device *pdev)
 
 	ret = rproc_add(rproc);
 	if (ret) {
-		dev_err(dev, "failed to register rproc device: %d\n", ret);
+		dev_err_probe(dev, ret, "failed to register rproc device\n");
 		goto err_mbox_release;
 	}
 
@@ -699,10 +736,7 @@ static void sunxi_rproc_remove(struct platform_device *pdev)
 }
 
 static const struct of_device_id sunxi_rproc_of_match[] = {
-	/*
-	 * A523, A527, and T527 are the same silicon die (sun55i family).
-	 * Use a single compatible string per upstream DT binding policy.
-	 */
+	/* The A523, A527 and T527 are one die, so one compatible covers all three */
 	{ .compatible = "allwinner,sun55i-a523-rproc", .data = &sun55i_riscv_cfg },
 	{ /* sentinel */ }
 };

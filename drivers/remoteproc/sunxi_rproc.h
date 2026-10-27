@@ -38,7 +38,7 @@ struct sunxi_rproc_att {
 /* XuanTie CFG Block Register Offsets */
 #define E906_STA_ADD_REG		0x0204
 
-/* Remap Control Register (offset 0x364 in PRCM_R_CCU / MCU_CCU) */
+/* Remap control register (R-PRCM 0x07010364), shared with the HiFi4 DSP */
 /* Bit 0: 0 = local RAM for MCU; 1 = share for system */
 #define SUNXI_REMAP_MCU_RAM_BIT		BIT(0)
 /* Bit 1: 0 = SRAMA3_2 not shared; 1 = share for MCU_SYS */

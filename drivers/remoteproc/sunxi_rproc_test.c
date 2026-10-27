@@ -9,6 +9,7 @@
  *    reset and the crash interrupt armed only while the core runs
  *  - prepare()/unprepare(): reset and clock order, every failure unwound,
  *    remap bit, SRAM clearing, carveout re-registration
+ *  - sanity_check(): only 32-bit RISC-V firmware
  *  - parse_fw(): firmware with and without a resource table
  *  - kick(): one immutable payload per vring, valid while queued, and a
  *    full mailbox queue
@@ -259,10 +260,13 @@ static void test_da_to_va_unmapped_regions_return_null(struct kunit *test)
 {
 	struct test_context *ctx = create_test_ctx(test);
 	struct rproc *rproc = &ctx->rproc;
+	bool is_iomem = false;
 
 	ctx->priv.r_sram_va = NULL;
 	ctx->priv.r_sram1_va = NULL;
-	KUNIT_EXPECT_NULL(test, sunxi_rproc_da_to_va(rproc, E906_SRAM_SPACE0_DA, 0x100, NULL));
+	KUNIT_EXPECT_NULL(test, sunxi_rproc_da_to_va(rproc, E906_SRAM_SPACE0_DA, 0x100, &is_iomem));
+	/* Nothing returned, so nothing reported about it either */
+	KUNIT_EXPECT_FALSE(test, is_iomem);
 	KUNIT_EXPECT_NULL(test, sunxi_rproc_da_to_va(rproc, A527_SRAM_PHYS, 0x100, NULL));
 	KUNIT_EXPECT_NULL(test, sunxi_rproc_da_to_va(rproc, E906_SRAM_SPACE1_DA, 0x100, NULL));
 	KUNIT_EXPECT_NULL(test, sunxi_rproc_da_to_va(rproc, A527_SRAM1_PHYS, 0x100, NULL));
@@ -1076,6 +1080,11 @@ static void mock_elf_init(struct mock_elf *elf, bool with_table, u32 ver)
 	memset(elf, 0, sizeof(*elf));
 	memcpy(elf->ehdr.e_ident, ELFMAG, SELFMAG);
 	elf->ehdr.e_ident[EI_CLASS] = ELFCLASS32;
+	elf->ehdr.e_ident[EI_DATA] = IS_ENABLED(CONFIG_CPU_BIG_ENDIAN) ? ELFDATA2MSB : ELFDATA2LSB;
+	elf->ehdr.e_machine = EM_RISCV;
+	/* One program header, so the core's sanity check accepts the file */
+	elf->ehdr.e_phoff = offsetof(struct mock_elf, shdr);
+	elf->ehdr.e_phnum = 1;
 	elf->ehdr.e_shoff = offsetof(struct mock_elf, shdr);
 	elf->ehdr.e_shentsize = sizeof(struct elf32_shdr);
 	elf->ehdr.e_shnum = 3;
@@ -1092,6 +1101,28 @@ static void mock_elf_init(struct mock_elf *elf, bool with_table, u32 ver)
 	elf->shdr[2].sh_name = 17;
 	elf->shdr[2].sh_offset = offsetof(struct mock_elf, shstrtab);
 	elf->shdr[2].sh_size = sizeof(names);
+}
+
+/* Only 32-bit RISC-V firmware is loaded into the E906's memory */
+static void test_sanity_check_machine(struct kunit *test)
+{
+	struct test_context *ctx = create_test_ctx(test);
+	struct mock_elf *elf = kunit_kzalloc(test, sizeof(*elf), GFP_KERNEL);
+	struct firmware fw = { .size = sizeof(*elf) };
+
+	KUNIT_ASSERT_NOT_NULL(test, elf);
+	fw.data = (const u8 *)elf;
+
+	mock_elf_init(elf, false, 1);
+	KUNIT_EXPECT_EQ(test, sunxi_rproc_ops.sanity_check(&ctx->rproc, &fw), 0);
+
+	elf->ehdr.e_machine = EM_ARM;
+	KUNIT_EXPECT_EQ(test, sunxi_rproc_ops.sanity_check(&ctx->rproc, &fw), -EINVAL);
+
+	/* What the core itself rejects stays rejected */
+	mock_elf_init(elf, false, 1);
+	elf->ehdr.e_ident[EI_MAG0] = 0;
+	KUNIT_EXPECT_EQ(test, sunxi_rproc_ops.sanity_check(&ctx->rproc, &fw), -EINVAL);
 }
 
 static void test_parse_fw_resource_table(struct kunit *test)
@@ -1146,6 +1177,7 @@ static struct kunit_case sunxi_rproc_test_cases[] = {
 	KUNIT_CASE_PARAM(test_prepare_unwinds_failure, prepare_fail_gen_params),
 	KUNIT_CASE(test_start_core_reset_failure),
 	/* Firmware */
+	KUNIT_CASE(test_sanity_check_machine),
 	KUNIT_CASE(test_parse_fw_resource_table),
 	/* kick and mailbox rx callback */
 	KUNIT_CASE(test_kick_payload_outlives_call),
