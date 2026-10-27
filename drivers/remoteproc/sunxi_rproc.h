@@ -83,13 +83,13 @@ struct sunxi_rproc {
 
 	void __iomem *remap_va;
 
-	void __iomem *r_sram_va;
-	phys_addr_t r_sram_phys;
-	size_t r_sram_size;
+	void __iomem *sram0_va;
+	phys_addr_t sram0_phys;
+	size_t sram0_size;
 
-	void __iomem *r_sram1_va;
-	phys_addr_t r_sram1_phys;
-	size_t r_sram1_size;
+	void __iomem *sram1_va;
+	phys_addr_t sram1_phys;
+	size_t sram1_size;
 
 	/* memory-region entries, the crash interrupt and the mailbox */
 	struct sunxi_rproc_rmem rmem[SUNXI_RPROC_MAX_RMEM];

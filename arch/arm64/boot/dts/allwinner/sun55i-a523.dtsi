@@ -1118,7 +1118,7 @@
 			      <0x07280000 0x40000>,
 			      <0x072c0000 0x40000>,
 			      <0x07010364 0x4>;
-			reg-names = "cfg", "r_sram", "r_sram1", "remap";
+			reg-names = "cfg", "sram-a3-0", "sram-a3-1", "remap";
 			clocks = <&mcu_ccu CLK_BUS_MCU_RISCV_CFG>,
 				 <&mcu_ccu CLK_MCU_RISCV>,
 				 <&mcu_ccu CLK_BUS_MCU_PUBSRAM>;

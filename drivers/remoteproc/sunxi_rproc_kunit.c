@@ -193,13 +193,13 @@ static struct test_context *create_test_ctx(struct kunit *test)
 	pm_runtime_no_callbacks(ctx->priv.dev);
 	KUNIT_ASSERT_EQ(test, devm_pm_runtime_enable(ctx->priv.dev), 0);
 
-	ctx->priv.r_sram_va = FAKE_SRAM_VA;
-	ctx->priv.r_sram_phys = A527_SRAM_PHYS;
-	ctx->priv.r_sram_size = A527_SRAM_SIZE;
+	ctx->priv.sram0_va = FAKE_SRAM_VA;
+	ctx->priv.sram0_phys = A527_SRAM_PHYS;
+	ctx->priv.sram0_size = A527_SRAM_SIZE;
 
-	ctx->priv.r_sram1_va = FAKE_SRAM1_VA;
-	ctx->priv.r_sram1_phys = A527_SRAM1_PHYS;
-	ctx->priv.r_sram1_size = A527_SRAM1_SIZE;
+	ctx->priv.sram1_va = FAKE_SRAM1_VA;
+	ctx->priv.sram1_phys = A527_SRAM1_PHYS;
+	ctx->priv.sram1_size = A527_SRAM1_SIZE;
 
 	ctx->priv.cfg = &sun55i_riscv_cfg;
 
@@ -311,8 +311,8 @@ static void test_da_to_va_unmapped_regions_return_null(struct kunit *test)
 	u64 da0 = SUN55I_E906_SRAM_SPACE0_DA;
 	bool is_iomem = false;
 
-	ctx->priv.r_sram_va = NULL;
-	ctx->priv.r_sram1_va = NULL;
+	ctx->priv.sram0_va = NULL;
+	ctx->priv.sram1_va = NULL;
 	KUNIT_EXPECT_NULL(test, sunxi_rproc_da_to_va(rproc, da0, 0x100, &is_iomem));
 	/* Nothing returned, so nothing reported about it either */
 	KUNIT_EXPECT_FALSE(test, is_iomem);
@@ -388,10 +388,10 @@ static void use_mmio_mocks(struct test_context *ctx)
 {
 	ctx->priv.cfg_va = (void __iomem *)ctx->mock_cfg_regs;
 	ctx->priv.remap_va = (void __iomem *)&ctx->mock_remap_reg;
-	ctx->priv.r_sram_va = (void __iomem *)ctx->mock_sram_buf;
-	ctx->priv.r_sram_size = sizeof(ctx->mock_sram_buf);
-	ctx->priv.r_sram1_va = (void __iomem *)ctx->mock_sram1_buf;
-	ctx->priv.r_sram1_size = sizeof(ctx->mock_sram1_buf);
+	ctx->priv.sram0_va = (void __iomem *)ctx->mock_sram_buf;
+	ctx->priv.sram0_size = sizeof(ctx->mock_sram_buf);
+	ctx->priv.sram1_va = (void __iomem *)ctx->mock_sram1_buf;
+	ctx->priv.sram1_size = sizeof(ctx->mock_sram1_buf);
 }
 
 static void test_start_bootaddr_programming(struct kunit *test)

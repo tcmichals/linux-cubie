@@ -2,6 +2,7 @@
 /*
  * Allwinner sun55i (A523) Message Box driver
  *
+ * Copyright (C) 2020-2023 Allwinner Technology Co., Ltd.
  * Copyright (C) 2026 Tim Michals <tcmichals@gmail.com>
  * Based on vendor sunxi-msgbox driver by Allwinner Technology Co., Ltd.
  */

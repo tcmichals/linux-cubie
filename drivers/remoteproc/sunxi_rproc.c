@@ -126,13 +126,13 @@ static bool sunxi_rproc_att_overlaps(const struct sunxi_rproc_cfg *cfg, u64 da, 
 /* The mapping of host range [@sys, @sys + @len) if it lies in one of the SRAMs */
 static void __iomem *sunxi_rproc_sram_va(struct sunxi_rproc *priv, u64 sys, size_t len)
 {
-	if (priv->r_sram_va && sys >= priv->r_sram_phys &&
-	    sys + len <= priv->r_sram_phys + priv->r_sram_size)
-		return priv->r_sram_va + (sys - priv->r_sram_phys);
+	if (priv->sram0_va && sys >= priv->sram0_phys &&
+	    sys + len <= priv->sram0_phys + priv->sram0_size)
+		return priv->sram0_va + (sys - priv->sram0_phys);
 
-	if (priv->r_sram1_va && sys >= priv->r_sram1_phys &&
-	    sys + len <= priv->r_sram1_phys + priv->r_sram1_size)
-		return priv->r_sram1_va + (sys - priv->r_sram1_phys);
+	if (priv->sram1_va && sys >= priv->sram1_phys &&
+	    sys + len <= priv->sram1_phys + priv->sram1_size)
+		return priv->sram1_va + (sys - priv->sram1_phys);
 
 	return NULL;
 }
@@ -200,14 +200,14 @@ static void sunxi_rproc_add_dump_segments(struct rproc *rproc)
 	int ret;
 
 	/* probe() checked that both SRAMs are in the core's address map */
-	ret = sunxi_rproc_sys_to_da(priv->cfg, priv->r_sram_phys, priv->r_sram_size, &da0);
+	ret = sunxi_rproc_sys_to_da(priv->cfg, priv->sram0_phys, priv->sram0_size, &da0);
 	if (!ret)
-		ret = sunxi_rproc_sys_to_da(priv->cfg, priv->r_sram1_phys,
-					    priv->r_sram1_size, &da1);
+		ret = sunxi_rproc_sys_to_da(priv->cfg, priv->sram1_phys,
+					    priv->sram1_size, &da1);
 	if (!ret)
-		ret = rproc_coredump_add_segment(rproc, da0, priv->r_sram_size);
+		ret = rproc_coredump_add_segment(rproc, da0, priv->sram0_size);
 	if (!ret)
-		ret = rproc_coredump_add_segment(rproc, da1, priv->r_sram1_size);
+		ret = rproc_coredump_add_segment(rproc, da1, priv->sram1_size);
 	for (i = 0; !ret && i < priv->num_rmem; i++) {
 		if (priv->rmem[i].is_iomem)
 			continue;	/* placed on an SRAM, already dumped */
@@ -289,8 +289,8 @@ int sunxi_rproc_prepare(struct rproc *rproc)
 	sunxi_rproc_readl(priv->remap_va);
 
 	/* 5. Clear both SRAM spaces */
-	sunxi_rproc_memset_io(priv->r_sram_va, 0, priv->r_sram_size);
-	sunxi_rproc_memset_io(priv->r_sram1_va, 0, priv->r_sram1_size);
+	sunxi_rproc_memset_io(priv->sram0_va, 0, priv->sram0_size);
+	sunxi_rproc_memset_io(priv->sram1_va, 0, priv->sram1_size);
 
 	return 0;
 
@@ -567,13 +567,13 @@ static int sunxi_rproc_register_mem(struct platform_device *pdev, struct sunxi_r
 	if (IS_ERR(priv->cfg_va))
 		return dev_err_probe(dev, PTR_ERR(priv->cfg_va), "failed to map 'cfg'\n");
 
-	ret = sunxi_rproc_map_sram(pdev, "r_sram", &priv->r_sram_va, &priv->r_sram_phys,
-				   &priv->r_sram_size);
+	ret = sunxi_rproc_map_sram(pdev, "sram-a3-0", &priv->sram0_va, &priv->sram0_phys,
+				   &priv->sram0_size);
 	if (ret)
 		return ret;
 
-	ret = sunxi_rproc_map_sram(pdev, "r_sram1", &priv->r_sram1_va, &priv->r_sram1_phys,
-				   &priv->r_sram1_size);
+	ret = sunxi_rproc_map_sram(pdev, "sram-a3-1", &priv->sram1_va, &priv->sram1_phys,
+				   &priv->sram1_size);
 	if (ret)
 		return ret;
 
