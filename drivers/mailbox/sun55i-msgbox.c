@@ -342,16 +342,10 @@ static int sun55i_msgbox_startup(struct mbox_chan *chan)
 
 	sun55i_chan_to_route(n, &local_n, &p, &remote_id, &remote_n);
 
-	/* Drop stale receive data, then clear the pending bit */
-	sun55i_msgbox_rx_flush(mbox, local_n, p);
-
-	/* Enable receive IRQ */
-	spin_lock_irqsave(&mbox->lock, flags);
-	val = sun55i_readl(mbox->regs[0] + SUNXI_MSGBOX_READ_IRQ_ENABLE(local_n));
-	val |= RD_IRQ_EN_BIT(p);
-	sun55i_writel(val, mbox->regs[0] + SUNXI_MSGBOX_READ_IRQ_ENABLE(local_n));
-	spin_unlock_irqrestore(&mbox->lock, flags);
-
+	/*
+	 * Get the TX-done line before the receive IRQ is enabled: on failure the
+	 * core clears chan->cl, which a receive handler must not be using.
+	 */
 	if (mbox->tx_done_irq) {
 		int ret;
 
@@ -362,16 +356,20 @@ static int sun55i_msgbox_startup(struct mbox_chan *chan)
 			      mbox->regs[remote_id] + SUNXI_MSGBOX_WRITE_IRQ_STATUS(remote_n));
 
 		ret = sun55i_msgbox_tx_irq_get(mbox, remote_id);
-		if (ret) {
-			spin_lock_irqsave(&mbox->lock, flags);
-			val = sun55i_readl(mbox->regs[0] + SUNXI_MSGBOX_READ_IRQ_ENABLE(local_n));
-			val &= ~RD_IRQ_EN_BIT(p);
-			sun55i_writel(val, mbox->regs[0] + SUNXI_MSGBOX_READ_IRQ_ENABLE(local_n));
-			spin_unlock_irqrestore(&mbox->lock, flags);
+		if (ret)
 			return ret;
-		}
 		set_bit(n, &mbox->tx_irq_held);
 	}
+
+	/* Drop stale receive data, then clear the pending bit */
+	sun55i_msgbox_rx_flush(mbox, local_n, p);
+
+	/* Enable receive IRQ */
+	spin_lock_irqsave(&mbox->lock, flags);
+	val = sun55i_readl(mbox->regs[0] + SUNXI_MSGBOX_READ_IRQ_ENABLE(local_n));
+	val |= RD_IRQ_EN_BIT(p);
+	sun55i_writel(val, mbox->regs[0] + SUNXI_MSGBOX_READ_IRQ_ENABLE(local_n));
+	spin_unlock_irqrestore(&mbox->lock, flags);
 
 	return 0;
 }
