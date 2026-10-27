@@ -391,16 +391,16 @@ config SUNXI_REMOTEPROC
 
 config SUNXI_REMOTEPROC_KUNIT_TEST
 	tristate "KUnit tests for Allwinner sunxi remoteproc" if !KUNIT_ALL_TESTS
-	# The tests use plain memory as fake MMIO, which readl()/writel()
-	# only handle like registers on the architectures below.
-	depends on SUNXI_REMOTEPROC && KUNIT && (ARM64 || COMPILE_TEST) && !UML
+	depends on SUNXI_REMOTEPROC && KUNIT && COMMON_CLK && RESET_CONTROLLER
 	default KUNIT_ALL_TESTS
 	help
 	  KUnit tests for the Allwinner sunxi_rproc driver: da_to_va()
 	  address translation for both SRAM spaces and DRAM carveouts,
-	  prepare()/unprepare() (remap bit, SRAM clear, carveouts), start()
-	  boot address programming, kicks, and the rx callback deferring to
-	  a workqueue.
+	  prepare()/unprepare() (reset and clock order, every failure
+	  unwound, remap bit, SRAM clear, carveouts), start()/stop() (boot
+	  address, crash interrupt), the resource table, kicks, and the
+	  vring notifications. Fake clocks and a fake reset controller stand
+	  in for the hardware.
 	  Say Y here to run these tests during boot or via kunit.py.
 
 endif # REMOTEPROC

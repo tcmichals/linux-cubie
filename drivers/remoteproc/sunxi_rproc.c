@@ -10,6 +10,7 @@
  * Allwinner SoCs (T527/A527/A523: E906), running from on-chip SRAM and DRAM.
  */
 
+#include <kunit/static_stub.h>
 #include <kunit/visibility.h>
 #include <linux/clk.h>
 #include <linux/err.h>
@@ -51,19 +52,49 @@ const struct sunxi_rproc_cfg sun55i_riscv_cfg = {
 };
 EXPORT_SYMBOL_IF_KUNIT(sun55i_riscv_cfg);
 
-static int sunxi_rproc_vq_notify(int id, void *ptr, void *data)
+/* All register and SRAM access goes through these, so KUnit can model it */
+VISIBLE_IF_KUNIT
+u32 sunxi_rproc_readl(void __iomem *addr)
 {
+	KUNIT_STATIC_STUB_REDIRECT(sunxi_rproc_readl, addr);
+	return readl(addr);
+}
+EXPORT_SYMBOL_IF_KUNIT(sunxi_rproc_readl);
+
+VISIBLE_IF_KUNIT
+void sunxi_rproc_writel(u32 val, void __iomem *addr)
+{
+	KUNIT_STATIC_STUB_REDIRECT(sunxi_rproc_writel, val, addr);
+	writel(val, addr);
+}
+EXPORT_SYMBOL_IF_KUNIT(sunxi_rproc_writel);
+
+VISIBLE_IF_KUNIT
+void sunxi_rproc_memset_io(void __iomem *addr, int val, size_t len)
+{
+	KUNIT_STATIC_STUB_REDIRECT(sunxi_rproc_memset_io, addr, val, len);
+	memset_io(addr, val, len);
+}
+EXPORT_SYMBOL_IF_KUNIT(sunxi_rproc_memset_io);
+
+VISIBLE_IF_KUNIT
+int sunxi_rproc_vq_notify(int id, void *ptr, void *data)
+{
+	KUNIT_STATIC_STUB_REDIRECT(sunxi_rproc_vq_notify, id, ptr, data);
 	rproc_vq_interrupt(data, id);
 	return 0;
 }
+EXPORT_SYMBOL_IF_KUNIT(sunxi_rproc_vq_notify);
 
 /* One channel carries all notifications: check every vring */
-static void sunxi_rproc_vq_work(struct work_struct *work)
+VISIBLE_IF_KUNIT
+void sunxi_rproc_vq_work(struct work_struct *work)
 {
 	struct sunxi_rproc *priv = container_of(work, struct sunxi_rproc, vq_work);
 
 	idr_for_each(&priv->rproc->notifyids, sunxi_rproc_vq_notify, priv->rproc);
 }
+EXPORT_SYMBOL_IF_KUNIT(sunxi_rproc_vq_work);
 
 /*
  * Mailbox rx callbacks run in atomic context, but the virtio/rpmsg receive
@@ -173,13 +204,13 @@ int sunxi_rproc_prepare(struct rproc *rproc)
 	}
 
 	/* 4. Switch SRAM A3_2 (SRAM space 1) to the RISC-V core: REMAP bit 1 */
-	remap_val = readl(priv->remap_va) | SUNXI_REMAP_SRAMA3_2_BIT;
-	writel(remap_val, priv->remap_va);
-	readl(priv->remap_va);
+	remap_val = sunxi_rproc_readl(priv->remap_va) | SUNXI_REMAP_SRAMA3_2_BIT;
+	sunxi_rproc_writel(remap_val, priv->remap_va);
+	sunxi_rproc_readl(priv->remap_va);
 
 	/* 5. Clear both SRAM spaces */
-	memset_io(priv->r_sram_va, 0, priv->r_sram_size);
-	memset_io(priv->r_sram1_va, 0, priv->r_sram1_size);
+	sunxi_rproc_memset_io(priv->r_sram_va, 0, priv->r_sram_size);
+	sunxi_rproc_memset_io(priv->r_sram1_va, 0, priv->r_sram1_size);
 
 	/* rproc_resource_cleanup() frees rproc->carveouts after every run */
 	for (i = 0; i < priv->num_rmem; i++)
@@ -211,8 +242,9 @@ int sunxi_rproc_unprepare(struct rproc *rproc)
 {
 	struct sunxi_rproc *priv = rproc->priv;
 
-	writel(readl(priv->remap_va) & ~SUNXI_REMAP_SRAMA3_2_BIT, priv->remap_va);
-	readl(priv->remap_va);
+	sunxi_rproc_writel(sunxi_rproc_readl(priv->remap_va) & ~SUNXI_REMAP_SRAMA3_2_BIT,
+			   priv->remap_va);
+	sunxi_rproc_readl(priv->remap_va);
 
 	clk_disable_unprepare(priv->clk_core);
 	clk_disable_unprepare(priv->clk_sram);
@@ -242,8 +274,8 @@ int sunxi_rproc_start(struct rproc *rproc)
 		return -EINVAL;
 
 	/* Program the reset vector and flush it before releasing the core */
-	writel((u32)rproc->bootaddr, priv->cfg_va + cfg->boot_reg_offset);
-	readl(priv->cfg_va + cfg->boot_reg_offset);
+	sunxi_rproc_writel((u32)rproc->bootaddr, priv->cfg_va + cfg->boot_reg_offset);
+	sunxi_rproc_readl(priv->cfg_va + cfg->boot_reg_offset);
 
 	ret = reset_control_deassert(priv->rst_core);
 	if (ret) {

@@ -106,6 +106,11 @@ struct sunxi_rproc {
 extern const struct sunxi_rproc_cfg sun55i_riscv_cfg;
 extern const struct rproc_ops sunxi_rproc_ops;
 
+u32 sunxi_rproc_readl(void __iomem *addr);
+void sunxi_rproc_writel(u32 val, void __iomem *addr);
+void sunxi_rproc_memset_io(void __iomem *addr, int val, size_t len);
+int sunxi_rproc_vq_notify(int id, void *ptr, void *data);
+void sunxi_rproc_vq_work(struct work_struct *work);
 int sunxi_rproc_prepare(struct rproc *rproc);
 int sunxi_rproc_unprepare(struct rproc *rproc);
 int sunxi_rproc_start(struct rproc *rproc);
