@@ -476,7 +476,9 @@ static int sun55i_msgbox_probe(struct platform_device *pdev)
 		return -ENOMEM;
 
 	spin_lock_init(&mbox->lock);
-	mutex_init(&mbox->tx_irq_lock);
+	ret = devm_mutex_init(dev, &mbox->tx_irq_lock);
+	if (ret)
+		return ret;
 
 	chans = devm_kcalloc(dev, SUN55I_NUM_CHANS, sizeof(*chans), GFP_KERNEL);
 	if (!chans)
@@ -484,6 +486,12 @@ static int sun55i_msgbox_probe(struct platform_device *pdev)
 
 	for (i = 0; i < SUN55I_NUM_CHANS; i++)
 		chans[i].con_priv = mbox;
+
+	/* The interrupt handler walks the channels: set them up before it */
+	mbox->controller.dev = dev;
+	mbox->controller.ops = &sun55i_msgbox_chan_ops;
+	mbox->controller.chans = chans;
+	mbox->controller.num_chans = SUN55I_NUM_CHANS;
 
 	for (i = 0; i < SUN55I_MAX_PROCESSORS; i++) {
 		mbox->regs[i] = devm_platform_ioremap_resource(pdev, i);
@@ -566,14 +574,13 @@ static int sun55i_msgbox_probe(struct platform_device *pdev)
 			return -ENOMEM;
 	}
 
-	mbox->controller.dev           = dev;
-	mbox->controller.ops           = &sun55i_msgbox_chan_ops;
-	mbox->controller.chans         = chans;
-	mbox->controller.num_chans     = SUN55I_NUM_CHANS;
-	/* TX done by the write IRQ ("allwinner,tx-done-irq") or by polling */
-	mbox->controller.txdone_irq    = mbox->tx_done_irq;
-	mbox->controller.txdone_poll   = !mbox->tx_done_irq;
-	mbox->controller.txpoll_period = 1;
+	/* TX done by the write IRQ ("allwinner,tx-done-irq") or by a 1 ms poll */
+	if (mbox->tx_done_irq) {
+		mbox->controller.txdone_irq = true;
+	} else {
+		mbox->controller.txdone_poll = true;
+		mbox->controller.txpoll_period = 1;
+	}
 
 	ret = devm_mbox_controller_register(dev, &mbox->controller);
 	if (ret)

@@ -62,6 +62,7 @@ struct sun55i_msgbox {
 	int irq;
 	/* "allwinner,tx-done-irq": TX done by the write IRQ, else polled */
 	bool tx_done_irq;
+	/* Indexed by bank; the host bank's entry is unused */
 	struct sun55i_tx_irq tx_irqs[SUN55I_MAX_PROCESSORS];
 	/* Channels whose startup() holds their bank's TX-done line */
 	unsigned long tx_irq_held;
