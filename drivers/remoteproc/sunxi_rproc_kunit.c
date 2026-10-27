@@ -1,16 +1,19 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * KUnit tests for Allwinner XuanTie RISC-V remoteproc driver (sunxi_rproc.c)
+ * KUnit tests for the Allwinner XuanTie E906 remoteproc driver (sunxi_rproc.c)
  *
  * Covers:
  *  - da_to_va() translation of both SRAM windows, their bounds, overflow
  *    and zero-length handling, and that DRAM is left to the core carveouts
  *  - start()/stop(): STA_ADD programming, bootaddr validation, the core
  *    reset and the crash interrupt armed only while the core runs
+ *  - the crash handler: disarms the line it was armed on, never twice,
+ *    and reports the crash to the core
  *  - prepare()/unprepare(): reset and clock order, every failure unwound,
- *    remap bit, SRAM clearing, carveout re-registration
+ *    remap bit, SRAM clearing
  *  - sanity_check(): only 32-bit RISC-V firmware
- *  - parse_fw(): firmware with and without a resource table
+ *  - parse_fw(): firmware with and without a resource table; carveouts and
+ *    crash dump segments registered for every boot and released by the core
  *  - kick(): one immutable payload per vring, valid while queued, and a
  *    full mailbox queue
  *  - mailbox rx callback deferring to the workqueue, and the work notifying
@@ -34,6 +37,7 @@
 #include <linux/irq.h>
 #include <linux/irqdesc.h>
 #include <linux/mailbox_controller.h>
+#include <linux/pm_domain.h>
 #include <linux/pm_runtime.h>
 #include <linux/property.h>
 #include <linux/remoteproc.h>
@@ -56,6 +60,9 @@
 #define FAKE_SRAM1_VA	((void __force __iomem *)FAKE_SRAM1_PTR)
 #define FAKE_DRAM_VA	((void *)0xC0000000UL)
 #define FAKE_TRACE_VA	((void *)0xD0000000UL)
+
+/* Remap register bit 0 belongs to the HiFi4 DSP: the driver leaves it alone */
+#define REMAP_DSP_BIT		BIT(0)
 
 /* Standard A527 hardware parameters */
 #define A527_SRAM_PHYS		SUN55I_SRAM_SPACE0_SYS
@@ -125,9 +132,41 @@ static void mock_memset_io(void __iomem *addr, int val, size_t len)
 		memset(p, val, len);
 }
 
-static void mock_dump_cleanup(void *rproc)
+/* What rproc_resource_cleanup() frees after a run, for the fake rproc */
+static void free_carveouts(struct rproc *rproc)
 {
+	struct rproc_mem_entry *entry, *tmp;
+
+	list_for_each_entry_safe(entry, tmp, &rproc->carveouts, node) {
+		list_del(&entry->node);
+		kfree(entry);
+	}
+}
+
+static void mock_rproc_cleanup(void *data)
+{
+	struct rproc *rproc = data;
+
+	free_carveouts(rproc);
 	rproc_coredump_cleanup(rproc);
+	kfree(rproc->cached_table);
+}
+
+static void mock_rproc_free(void *rproc)
+{
+	rproc_free(rproc);
+}
+
+/* A real rproc, for code that needs the core's state: freed after the test */
+static struct rproc *mock_real_rproc(struct kunit *test, struct test_context *ctx)
+{
+	struct rproc *rproc;
+
+	rproc = rproc_alloc(ctx->priv.dev, "sunxi-rproc-test", &sunxi_rproc_ops,
+			    NULL, sizeof(struct sunxi_rproc));
+	KUNIT_ASSERT_NOT_NULL(test, rproc);
+	KUNIT_ASSERT_EQ(test, kunit_add_action_or_reset(test, mock_rproc_free, rproc), 0);
+	return rproc;
 }
 
 static struct test_context *create_test_ctx(struct kunit *test)
@@ -146,7 +185,7 @@ static struct test_context *create_test_ctx(struct kunit *test)
 	ctx->priv.rproc = &ctx->rproc;
 	INIT_LIST_HEAD(&ctx->rproc.carveouts);
 	INIT_LIST_HEAD(&ctx->rproc.dump_segments);
-	KUNIT_ASSERT_EQ(test, kunit_add_action_or_reset(test, mock_dump_cleanup, &ctx->rproc), 0);
+	KUNIT_ASSERT_EQ(test, kunit_add_action_or_reset(test, mock_rproc_cleanup, &ctx->rproc), 0);
 
 	/* prepare()/unprepare() take a runtime PM reference on the device */
 	ctx->priv.dev = kunit_device_register(test, "sunxi-rproc-test");
@@ -175,7 +214,7 @@ static void test_da_to_va_zero_length_returns_null(struct kunit *test)
 
 	KUNIT_EXPECT_NULL(test,
 			  sunxi_rproc_da_to_va(&ctx->rproc,
-					       E906_SRAM_SPACE0_DA, 0, NULL));
+					       SUN55I_E906_SRAM_SPACE0_DA, 0, NULL));
 }
 
 /* A crafted ELF segment must not wrap da + len past U64_MAX */
@@ -185,9 +224,9 @@ static void test_da_to_va_rejects_overflow(struct kunit *test)
 
 	KUNIT_EXPECT_NULL(test, sunxi_rproc_da_to_va(&ctx->rproc, U64_MAX - 0x10, 0x20, NULL));
 	KUNIT_EXPECT_NULL(test, sunxi_rproc_da_to_va(&ctx->rproc, U64_MAX, 1, NULL));
-	KUNIT_EXPECT_NULL(test, sunxi_rproc_da_to_va(&ctx->rproc, E906_SRAM_SPACE0_DA,
+	KUNIT_EXPECT_NULL(test, sunxi_rproc_da_to_va(&ctx->rproc, SUN55I_E906_SRAM_SPACE0_DA,
 						     (size_t)-1, NULL));
-	KUNIT_EXPECT_NULL(test, sunxi_rproc_da_to_va(&ctx->rproc, E906_SRAM_SPACE1_DA,
+	KUNIT_EXPECT_NULL(test, sunxi_rproc_da_to_va(&ctx->rproc, SUN55I_E906_SRAM_SPACE1_DA,
 						     (size_t)-16, NULL));
 }
 
@@ -206,7 +245,7 @@ static void test_da_to_va_sram_space0(struct kunit *test)
 {
 	struct test_context *ctx = create_test_ctx(test);
 
-	expect_window(test, ctx, E906_SRAM_SPACE0_DA, FAKE_SRAM_PTR);
+	expect_window(test, ctx, SUN55I_E906_SRAM_SPACE0_DA, FAKE_SRAM_PTR);
 	expect_window(test, ctx, A527_SRAM_PHYS, FAKE_SRAM_PTR);
 }
 
@@ -214,7 +253,7 @@ static void test_da_to_va_sram_space1(struct kunit *test)
 {
 	struct test_context *ctx = create_test_ctx(test);
 
-	expect_window(test, ctx, E906_SRAM_SPACE1_DA, FAKE_SRAM1_PTR);
+	expect_window(test, ctx, SUN55I_E906_SRAM_SPACE1_DA, FAKE_SRAM1_PTR);
 	expect_window(test, ctx, A527_SRAM1_PHYS, FAKE_SRAM1_PTR);
 }
 
@@ -228,16 +267,17 @@ static void test_da_to_va_sram_bounds(struct kunit *test)
 {
 	struct test_context *ctx = create_test_ctx(test);
 	struct rproc *rproc = &ctx->rproc;
-	u64 s0_end = E906_SRAM_SPACE0_DA + A527_SRAM_SIZE;
-	u64 s1_end = E906_SRAM_SPACE1_DA + A527_SRAM1_SIZE;
+	u64 s0_end = SUN55I_E906_SRAM_SPACE0_DA + A527_SRAM_SIZE;
+	u64 s1_end = SUN55I_E906_SRAM_SPACE1_DA + A527_SRAM1_SIZE;
 
-	KUNIT_ASSERT_EQ(test, s0_end, (u64)E906_SRAM_SPACE1_DA);
+	KUNIT_ASSERT_EQ(test, s0_end, (u64)SUN55I_E906_SRAM_SPACE1_DA);
 
-	KUNIT_EXPECT_NULL(test, sunxi_rproc_da_to_va(rproc, E906_SRAM_SPACE0_DA - 1, 1, NULL));
+	KUNIT_EXPECT_NULL(test,
+			  sunxi_rproc_da_to_va(rproc, SUN55I_E906_SRAM_SPACE0_DA - 1, 1, NULL));
 	KUNIT_EXPECT_PTR_EQ(test, sunxi_rproc_da_to_va(rproc, s0_end - 1, 1, NULL),
 			    FAKE_SRAM_PTR + A527_SRAM_SIZE - 1);
 	KUNIT_EXPECT_NULL(test, sunxi_rproc_da_to_va(rproc, s0_end - 1, 2, NULL));
-	KUNIT_EXPECT_PTR_EQ(test, sunxi_rproc_da_to_va(rproc, E906_SRAM_SPACE1_DA, 1, NULL),
+	KUNIT_EXPECT_PTR_EQ(test, sunxi_rproc_da_to_va(rproc, SUN55I_E906_SRAM_SPACE1_DA, 1, NULL),
 			    FAKE_SRAM1_PTR);
 	KUNIT_EXPECT_PTR_EQ(test, sunxi_rproc_da_to_va(rproc, s1_end - 1, 1, NULL),
 			    FAKE_SRAM1_PTR + A527_SRAM1_SIZE - 1);
@@ -268,15 +308,17 @@ static void test_da_to_va_unmapped_regions_return_null(struct kunit *test)
 {
 	struct test_context *ctx = create_test_ctx(test);
 	struct rproc *rproc = &ctx->rproc;
+	u64 da0 = SUN55I_E906_SRAM_SPACE0_DA;
 	bool is_iomem = false;
 
 	ctx->priv.r_sram_va = NULL;
 	ctx->priv.r_sram1_va = NULL;
-	KUNIT_EXPECT_NULL(test, sunxi_rproc_da_to_va(rproc, E906_SRAM_SPACE0_DA, 0x100, &is_iomem));
+	KUNIT_EXPECT_NULL(test, sunxi_rproc_da_to_va(rproc, da0, 0x100, &is_iomem));
 	/* Nothing returned, so nothing reported about it either */
 	KUNIT_EXPECT_FALSE(test, is_iomem);
 	KUNIT_EXPECT_NULL(test, sunxi_rproc_da_to_va(rproc, A527_SRAM_PHYS, 0x100, NULL));
-	KUNIT_EXPECT_NULL(test, sunxi_rproc_da_to_va(rproc, E906_SRAM_SPACE1_DA, 0x100, NULL));
+	KUNIT_EXPECT_NULL(test,
+			  sunxi_rproc_da_to_va(rproc, SUN55I_E906_SRAM_SPACE1_DA, 0x100, NULL));
 	KUNIT_EXPECT_NULL(test, sunxi_rproc_da_to_va(rproc, A527_SRAM1_PHYS, 0x100, NULL));
 }
 
@@ -296,16 +338,6 @@ static void add_dram_carveout(struct kunit *test, struct test_context *ctx,
 				   (u32)phys, NULL, NULL, "%s", name);
 	KUNIT_ASSERT_NOT_NULL(test, mem);
 	rproc_add_carveout(&ctx->rproc, mem);
-}
-
-static void free_carveouts(struct test_context *ctx)
-{
-	struct rproc_mem_entry *entry, *tmp;
-
-	list_for_each_entry_safe(entry, tmp, &ctx->rproc.carveouts, node) {
-		list_del(&entry->node);
-		kfree(entry);
-	}
 }
 
 static void test_rproc_da_to_va_dram_carveout(struct kunit *test)
@@ -340,11 +372,9 @@ static void test_rproc_da_to_va_dram_carveout(struct kunit *test)
 	KUNIT_EXPECT_PTR_EQ(test, va, FAKE_TRACE_VA);
 
 	/* SRAM still goes through the driver's ATT */
-	va = rproc_da_to_va(&ctx->rproc, E906_SRAM_SPACE0_DA, 0x100, &is_iomem);
+	va = rproc_da_to_va(&ctx->rproc, SUN55I_E906_SRAM_SPACE0_DA, 0x100, &is_iomem);
 	KUNIT_EXPECT_PTR_EQ(test, va, FAKE_SRAM_PTR);
 	KUNIT_EXPECT_TRUE(test, is_iomem);
-
-	free_carveouts(ctx);
 }
 
 /* ==================== Lifecycle: start ==================== */
@@ -376,7 +406,7 @@ static void test_start_bootaddr_programming(struct kunit *test)
 	KUNIT_EXPECT_EQ(test, ret, 0);
 
 	/* Check that bootaddr was written to STA_ADD_REG (offset 0x204) */
-	KUNIT_EXPECT_EQ(test, ctx->mock_cfg_regs[E906_STA_ADD_REG / 4], 0x40014000U);
+	KUNIT_EXPECT_EQ(test, ctx->mock_cfg_regs[SUN55I_E906_STA_ADD_REG / 4], 0x40014000U);
 }
 
 static void test_start_rejects_bootaddr_overflow(struct kunit *test)
@@ -385,7 +415,7 @@ static void test_start_rejects_bootaddr_overflow(struct kunit *test)
 	int ret;
 
 	use_mmio_mocks(ctx);
-	ctx->mock_cfg_regs[E906_STA_ADD_REG / 4] = E906_SRAM_SPACE0_DA;
+	ctx->mock_cfg_regs[SUN55I_E906_STA_ADD_REG / 4] = SUN55I_E906_SRAM_SPACE0_DA;
 
 	/* Addresses beyond 32-bit range are invalid for 32-bit XuanTie E906 */
 	ctx->rproc.bootaddr = 0x100000000ULL;
@@ -394,7 +424,8 @@ static void test_start_rejects_bootaddr_overflow(struct kunit *test)
 	KUNIT_EXPECT_EQ(test, ret, -EINVAL);
 
 	/* Rejected before STA_ADD is touched */
-	KUNIT_EXPECT_EQ(test, ctx->mock_cfg_regs[E906_STA_ADD_REG / 4], (u32)E906_SRAM_SPACE0_DA);
+	KUNIT_EXPECT_EQ(test, ctx->mock_cfg_regs[SUN55I_E906_STA_ADD_REG / 4],
+			(u32)SUN55I_E906_SRAM_SPACE0_DA);
 }
 
 /* ==================== Lifecycle: prepare & unprepare ==================== */
@@ -407,18 +438,18 @@ static void test_prepare_and_unprepare_remap(struct kunit *test)
 	use_mmio_mocks(ctx);
 
 	/* Bit 0 belongs to the DSP (reset value 1): only bit 1 may change */
-	ctx->mock_remap_reg = SUNXI_REMAP_MCU_RAM_BIT;
+	ctx->mock_remap_reg = REMAP_DSP_BIT;
 
 	/* prepare() should set SUNXI_REMAP_SRAMA3_2_BIT (bit 1) */
 	ret = sunxi_rproc_prepare(&ctx->rproc);
 	KUNIT_EXPECT_EQ(test, ret, 0);
 	KUNIT_EXPECT_EQ(test, ctx->mock_remap_reg,
-			SUNXI_REMAP_MCU_RAM_BIT | SUNXI_REMAP_SRAMA3_2_BIT);
+			REMAP_DSP_BIT | SUNXI_REMAP_SRAMA3_2_BIT);
 
 	/* unprepare() should clear SUNXI_REMAP_SRAMA3_2_BIT */
 	ret = sunxi_rproc_unprepare(&ctx->rproc);
 	KUNIT_EXPECT_EQ(test, ret, 0);
-	KUNIT_EXPECT_EQ(test, ctx->mock_remap_reg, SUNXI_REMAP_MCU_RAM_BIT);
+	KUNIT_EXPECT_EQ(test, ctx->mock_remap_reg, REMAP_DSP_BIT);
 }
 
 static void test_prepare_clears_sram(struct kunit *test)
@@ -441,56 +472,6 @@ static void test_prepare_clears_sram(struct kunit *test)
 		KUNIT_EXPECT_EQ(test, ctx->mock_sram1_buf[i], 0);
 
 	KUNIT_EXPECT_EQ(test, sunxi_rproc_unprepare(&ctx->rproc), 0);
-}
-
-static void test_prepare_carveout_lifecycle(struct kunit *test)
-{
-	struct test_context *ctx = create_test_ctx(test);
-	struct rproc_mem_entry *entry, *tmp;
-	int count, ret;
-
-	use_mmio_mocks(ctx);
-
-	/* Setup a mock reserved memory entry */
-	ctx->priv.num_rmem = 1;
-	ctx->priv.rmem[0].name = "dram";
-	ctx->priv.rmem[0].va = ctx->mock_sram_buf;
-	ctx->priv.rmem[0].phys = A527_DRAM_PHYS;
-	ctx->priv.rmem[0].size = sizeof(ctx->mock_sram_buf);
-	ctx->priv.rmem[0].is_iomem = false;
-
-	/* First boot */
-	ret = sunxi_rproc_prepare(&ctx->rproc);
-	KUNIT_EXPECT_EQ(test, ret, 0);
-
-	count = 0;
-	list_for_each_entry(entry, &ctx->rproc.carveouts, node)
-		count++;
-	KUNIT_EXPECT_EQ(test, count, 1);
-	KUNIT_EXPECT_EQ(test, sunxi_rproc_unprepare(&ctx->rproc), 0);
-
-	/* Simulate rproc_resource_cleanup() freeing carveouts on shutdown */
-	list_for_each_entry_safe(entry, tmp, &ctx->rproc.carveouts, node) {
-		list_del(&entry->node);
-		kfree(entry);
-	}
-	KUNIT_EXPECT_TRUE(test, list_empty(&ctx->rproc.carveouts));
-
-	/* Second boot (restart/recovery): prepare() must re-add the carveout */
-	ret = sunxi_rproc_prepare(&ctx->rproc);
-	KUNIT_EXPECT_EQ(test, ret, 0);
-
-	count = 0;
-	list_for_each_entry(entry, &ctx->rproc.carveouts, node)
-		count++;
-	KUNIT_EXPECT_EQ(test, count, 1);
-	KUNIT_EXPECT_EQ(test, sunxi_rproc_unprepare(&ctx->rproc), 0);
-
-	/* Clean up */
-	list_for_each_entry_safe(entry, tmp, &ctx->rproc.carveouts, node) {
-		list_del(&entry->node);
-		kfree(entry);
-	}
 }
 
 /* ==================== kick ==================== */
@@ -632,9 +613,7 @@ static void test_vq_work_notifies_every_vring(struct kunit *test)
 	int i;
 
 	/* A real rproc, so its notify ID table is set up as the core does */
-	rproc = rproc_alloc(ctx->priv.dev, "sunxi-rproc-test", &sunxi_rproc_ops,
-			    NULL, sizeof(struct sunxi_rproc));
-	KUNIT_ASSERT_NOT_NULL(test, rproc);
+	rproc = mock_real_rproc(test, ctx);
 	ctx->priv.rproc = rproc;
 	ctx->vq_rproc = rproc;
 
@@ -644,9 +623,6 @@ static void test_vq_work_notifies_every_vring(struct kunit *test)
 						GFP_KERNEL), i);
 
 	sunxi_rproc_vq_work(&ctx->priv.vq_work);
-	for (i = 0; i < ARRAY_SIZE(vring); i++)
-		idr_remove(&rproc->notifyids, i);
-	rproc_free(rproc);
 
 	KUNIT_ASSERT_EQ(test, ctx->nr_notified, 3);
 	for (i = 0; i < 3; i++)
@@ -660,21 +636,11 @@ static void test_vq_work_notifies_every_vring(struct kunit *test)
 static void test_vq_notify_unknown_vring(struct kunit *test)
 {
 	struct test_context *ctx = create_test_ctx(test);
-	struct rproc *rproc;
 
-	rproc = rproc_alloc(ctx->priv.dev, "sunxi-rproc-test", &sunxi_rproc_ops,
-			    NULL, sizeof(struct sunxi_rproc));
-	KUNIT_ASSERT_NOT_NULL(test, rproc);
-	KUNIT_EXPECT_EQ(test, sunxi_rproc_vq_notify(5, NULL, rproc), 0);
-	rproc_free(rproc);
+	KUNIT_EXPECT_EQ(test, sunxi_rproc_vq_notify(5, NULL, mock_real_rproc(test, ctx)), 0);
 }
 
 /* ==================== Lifecycle: stop and the crash interrupt ==================== */
-
-static irqreturn_t mock_crash_irq(int irq, void *data)
-{
-	return IRQ_HANDLED;
-}
 
 static void mock_free_irq_desc(void *irq)
 {
@@ -685,7 +651,7 @@ static void mock_free_crash_irq(void *data)
 {
 	struct test_context *ctx = data;
 
-	free_irq(ctx->priv.crash_irq, ctx);
+	free_irq(ctx->priv.crash_irq, &ctx->priv);
 }
 
 /* A crash line on the dummy chip, requested like probe() does: not enabled */
@@ -695,10 +661,13 @@ static int mock_crash_line(struct kunit *test, struct test_context *ctx)
 
 	KUNIT_ASSERT_GE(test, irq, 0);
 	irq_set_chip_and_handler(irq, &dummy_irq_chip, handle_simple_irq);
+	/* Some architectures (arm, powerpc) mark new descriptors unrequestable */
+	irq_clear_status_flags(irq, IRQ_NOREQUEST | IRQ_NOPROBE);
 	KUNIT_ASSERT_EQ(test, kunit_add_action_or_reset(test, mock_free_irq_desc,
 							(void *)(unsigned long)irq), 0);
-	KUNIT_ASSERT_EQ(test, request_irq(irq, mock_crash_irq, IRQF_NO_AUTOEN,
-					  "sunxi-rproc-test-crash", ctx), 0);
+	KUNIT_ASSERT_EQ(test, request_threaded_irq(irq, NULL, sunxi_rproc_crash_handler,
+						   IRQF_ONESHOT | IRQF_NO_AUTOEN,
+						   "sunxi-rproc-test-crash", &ctx->priv), 0);
 	ctx->priv.crash_irq = irq;
 	KUNIT_ASSERT_EQ(test, kunit_add_action_or_reset(test, mock_free_crash_irq, ctx), 0);
 	return irq;
@@ -750,6 +719,55 @@ static void test_stop_without_crash_irq(struct kunit *test)
 	KUNIT_EXPECT_EQ(test, sunxi_rproc_start(&ctx->rproc), 0);
 	KUNIT_EXPECT_EQ(test, sunxi_rproc_ops.stop(&ctx->rproc), 0);
 	KUNIT_EXPECT_FALSE(test, test_bit(SUNXI_RPROC_CRASH_IRQ_ARMED, &ctx->priv.flags));
+}
+
+/* Fire the crash line and wait for its threaded handler */
+static void fire_crash_irq(struct kunit *test, int irq)
+{
+	KUNIT_ASSERT_EQ(test, generic_handle_irq_safe(irq), 0);
+	synchronize_irq(irq);
+}
+
+static void test_crash_handler_disarms_and_reports(struct kunit *test)
+{
+	struct test_context *ctx = create_test_ctx(test);
+	struct rproc *rproc = mock_real_rproc(test, ctx);
+	int irq;
+
+	use_mmio_mocks(ctx);
+	irq = mock_crash_line(test, ctx);
+
+	/* The crash is reported to a running core; no recovery in a test */
+	ctx->priv.rproc = rproc;
+	rproc->state = RPROC_RUNNING;
+	rproc->recovery_disabled = true;
+
+	/* Armed by start(): the handler masks the line until the next start() */
+	KUNIT_ASSERT_EQ(test, sunxi_rproc_start(&ctx->rproc), 0);
+	fire_crash_irq(test, irq);
+	flush_work(&rproc->crash_handler);
+	KUNIT_EXPECT_FALSE(test, test_bit(SUNXI_RPROC_CRASH_IRQ_ARMED, &ctx->priv.flags));
+	KUNIT_EXPECT_FALSE(test, crash_irq_enabled(irq));
+	KUNIT_EXPECT_EQ(test, crash_irq_depth(irq), 1U);
+	KUNIT_EXPECT_EQ(test, rproc->state, RPROC_CRASHED);
+	KUNIT_EXPECT_EQ(test, rproc->crash_cnt, 1U);
+
+	/* stop() of the crashed core leaves the line masked once */
+	KUNIT_EXPECT_EQ(test, sunxi_rproc_ops.stop(&ctx->rproc), 0);
+	KUNIT_EXPECT_EQ(test, crash_irq_depth(irq), 1U);
+
+	/*
+	 * A crash racing stop(): stop() has disarmed the line and disables it
+	 * itself, so the handler must not disable it a second time.
+	 */
+	rproc->state = RPROC_RUNNING;
+	KUNIT_ASSERT_EQ(test, sunxi_rproc_start(&ctx->rproc), 0);
+	clear_bit(SUNXI_RPROC_CRASH_IRQ_ARMED, &ctx->priv.flags);
+	fire_crash_irq(test, irq);
+	flush_work(&rproc->crash_handler);
+	KUNIT_EXPECT_EQ(test, crash_irq_depth(irq), 0U);
+	KUNIT_EXPECT_EQ(test, rproc->crash_cnt, 2U);
+	disable_irq(irq);
 }
 
 /* ==================== prepare/start with real clocks and resets ==================== */
@@ -942,7 +960,6 @@ static void expect_powered_off(struct kunit *test, struct test_context *ctx,
 	for (i = 0; i < NR_CLK; i++)
 		KUNIT_EXPECT_FALSE_MSG(test, clk_hw_is_prepared(&mp->clk[i].hw), "clock %d", i);
 	KUNIT_EXPECT_EQ(test, atomic_read(&ctx->priv.dev->power.usage_count), 0);
-	KUNIT_EXPECT_TRUE(test, list_empty(&ctx->rproc.carveouts));
 }
 
 static void test_prepare_unprepare_order(struct kunit *test)
@@ -960,7 +977,7 @@ static void test_prepare_unprepare_order(struct kunit *test)
 	KUNIT_EXPECT_EQ(test, atomic_read(&ctx->priv.dev->power.usage_count), 1);
 
 	/* start() releases the core; stop() holds it again */
-	ctx->rproc.bootaddr = E906_SRAM_SPACE0_DA;
+	ctx->rproc.bootaddr = SUN55I_E906_SRAM_SPACE0_DA;
 	KUNIT_ASSERT_EQ(test, sunxi_rproc_start(&ctx->rproc), 0);
 	KUNIT_EXPECT_FALSE(test, mp->asserted[RST_CORE]);
 	KUNIT_ASSERT_EQ(test, sunxi_rproc_ops.stop(&ctx->rproc), 0);
@@ -1000,12 +1017,7 @@ static void test_prepare_unwinds_failure(struct kunit *test)
 	struct test_context *ctx = create_test_ctx(test);
 	struct mock_providers *mp = use_mock_providers(test, ctx);
 
-	ctx->mock_remap_reg = SUNXI_REMAP_MCU_RAM_BIT;
-	ctx->priv.num_rmem = 1;
-	ctx->priv.rmem[0].name = "dram";
-	ctx->priv.rmem[0].va = FAKE_DRAM_VA;
-	ctx->priv.rmem[0].phys = A527_DRAM_PHYS;
-	ctx->priv.rmem[0].size = A527_DRAM_SIZE;
+	ctx->mock_remap_reg = REMAP_DSP_BIT;
 
 	if (c->rst >= 0)
 		mp->fail_rst = BIT(c->rst);
@@ -1014,7 +1026,7 @@ static void test_prepare_unwinds_failure(struct kunit *test)
 
 	KUNIT_EXPECT_EQ(test, sunxi_rproc_prepare(&ctx->rproc), -EIO);
 	expect_powered_off(test, ctx, mp, true);
-	KUNIT_EXPECT_EQ(test, ctx->mock_remap_reg, SUNXI_REMAP_MCU_RAM_BIT);
+	KUNIT_EXPECT_EQ(test, ctx->mock_remap_reg, REMAP_DSP_BIT);
 }
 
 static void test_start_core_reset_failure(struct kunit *test)
@@ -1024,52 +1036,12 @@ static void test_start_core_reset_failure(struct kunit *test)
 	int irq = mock_crash_line(test, ctx);
 
 	mp->fail_rst = BIT(RST_CORE);
-	ctx->rproc.bootaddr = E906_SRAM_SPACE0_DA;
+	ctx->rproc.bootaddr = SUN55I_E906_SRAM_SPACE0_DA;
 
 	/* The core stays held and the crash interrupt stays off */
 	KUNIT_EXPECT_EQ(test, sunxi_rproc_start(&ctx->rproc), -EIO);
 	KUNIT_EXPECT_TRUE(test, mp->asserted[RST_CORE]);
 	KUNIT_EXPECT_FALSE(test, crash_irq_enabled(irq));
-}
-
-/* Crash dumps cover both SRAMs by the core's addresses and each DRAM carveout */
-static void test_prepare_adds_dump_segments(struct kunit *test)
-{
-	struct test_context *ctx = create_test_ctx(test);
-	struct rproc_dump_segment *seg;
-	static const struct {
-		dma_addr_t da;
-		size_t size;
-	} want[] = {
-		{ E906_SRAM_SPACE0_DA, 1024 },
-		{ E906_SRAM_SPACE1_DA, 1024 },
-		{ A527_DRAM_PHYS, A527_DRAM_SIZE },
-	};
-	int n = 0;
-
-	use_mmio_mocks(ctx);
-	ctx->priv.num_rmem = 2;
-	ctx->priv.rmem[0].name = "vram";	/* a pool on SRAM: already dumped */
-	ctx->priv.rmem[0].va = ctx->mock_sram1_buf;
-	ctx->priv.rmem[0].phys = A527_SRAM1_PHYS;
-	ctx->priv.rmem[0].size = sizeof(ctx->mock_sram1_buf);
-	ctx->priv.rmem[0].is_iomem = true;
-	ctx->priv.rmem[1].name = "dram";
-	ctx->priv.rmem[1].va = FAKE_DRAM_VA;
-	ctx->priv.rmem[1].phys = A527_DRAM_PHYS;
-	ctx->priv.rmem[1].size = A527_DRAM_SIZE;
-
-	KUNIT_ASSERT_EQ(test, sunxi_rproc_prepare(&ctx->rproc), 0);
-	list_for_each_entry(seg, &ctx->rproc.dump_segments, node) {
-		KUNIT_ASSERT_LT(test, n, (int)ARRAY_SIZE(want));
-		KUNIT_EXPECT_EQ_MSG(test, seg->da, want[n].da, "segment %d", n);
-		KUNIT_EXPECT_EQ_MSG(test, seg->size, want[n].size, "segment %d", n);
-		n++;
-	}
-	KUNIT_EXPECT_EQ(test, n, (int)ARRAY_SIZE(want));
-
-	KUNIT_EXPECT_EQ(test, sunxi_rproc_unprepare(&ctx->rproc), 0);
-	free_carveouts(ctx);
 }
 
 /* ==================== prepare: power-up failure ==================== */
@@ -1083,9 +1055,39 @@ static struct dev_pm_domain mock_failing_pm_domain = {
 	.ops = { .runtime_resume = mock_runtime_resume_fails },
 };
 
-static void mock_clear_pm_domain(void *dev)
+static void mock_release_dev(struct device *dev)
 {
+	kfree(dev);
+}
+
+static void mock_remove_pd_dev(void *data)
+{
+	struct device *dev = data;
+
+	pm_runtime_disable(dev);
 	dev_pm_domain_set(dev, NULL);
+	device_unregister(dev);
+}
+
+/*
+ * A device whose power domain refuses to power up. A PM domain may only be
+ * set on a device no driver is bound to, so not a KUnit device.
+ */
+static struct device *mock_failing_pd_device(struct kunit *test)
+{
+	struct device *dev = kzalloc(sizeof(*dev), GFP_KERNEL);
+
+	KUNIT_ASSERT_NOT_NULL(test, dev);
+	device_initialize(dev);
+	dev->release = mock_release_dev;
+	if (dev_set_name(dev, "sunxi-rproc-test-pd") || device_add(dev)) {
+		put_device(dev);
+		KUNIT_FAIL_AND_ABORT(test, "cannot add the device");
+	}
+	dev_pm_domain_set(dev, &mock_failing_pm_domain);
+	pm_runtime_enable(dev);
+	KUNIT_ASSERT_EQ(test, kunit_add_action_or_reset(test, mock_remove_pd_dev, dev), 0);
+	return dev;
 }
 
 static void test_prepare_power_up_failure(struct kunit *test)
@@ -1094,26 +1096,14 @@ static void test_prepare_power_up_failure(struct kunit *test)
 	struct device *dev;
 
 	use_mmio_mocks(ctx);
-	ctx->mock_remap_reg = SUNXI_REMAP_MCU_RAM_BIT;
+	ctx->mock_remap_reg = REMAP_DSP_BIT;
 
-	/* A device whose power domain refuses to power up */
-	dev = kunit_device_register(test, "sunxi-rproc-test-pd");
-	KUNIT_ASSERT_NOT_ERR_OR_NULL(test, dev);
-	dev_pm_domain_set(dev, &mock_failing_pm_domain);
-	KUNIT_ASSERT_EQ(test, kunit_add_action_or_reset(test, mock_clear_pm_domain, dev), 0);
-	KUNIT_ASSERT_EQ(test, devm_pm_runtime_enable(dev), 0);
+	dev = mock_failing_pd_device(test);
 	ctx->priv.dev = dev;
 
-	ctx->priv.num_rmem = 1;
-	ctx->priv.rmem[0].name = "dram";
-	ctx->priv.rmem[0].va = FAKE_DRAM_VA;
-	ctx->priv.rmem[0].phys = A527_DRAM_PHYS;
-	ctx->priv.rmem[0].size = A527_DRAM_SIZE;
-
-	/* Nothing is touched and nothing is registered */
+	/* Nothing is touched */
 	KUNIT_EXPECT_EQ(test, sunxi_rproc_prepare(&ctx->rproc), -EIO);
-	KUNIT_EXPECT_TRUE(test, list_empty(&ctx->rproc.carveouts));
-	KUNIT_EXPECT_EQ(test, ctx->mock_remap_reg, SUNXI_REMAP_MCU_RAM_BIT);
+	KUNIT_EXPECT_EQ(test, ctx->mock_remap_reg, REMAP_DSP_BIT);
 	KUNIT_EXPECT_EQ(test, atomic_read(&dev->power.usage_count), 0);
 }
 
@@ -1203,7 +1193,76 @@ static void test_parse_fw_resource_table(struct kunit *test)
 	KUNIT_EXPECT_EQ(test, sunxi_rproc_ops.parse_fw(&ctx->rproc, &fw), 0);
 	KUNIT_ASSERT_NOT_NULL(test, ctx->rproc.table_ptr);
 	KUNIT_EXPECT_EQ(test, ctx->rproc.table_ptr->ver, 1U);
-	kfree(ctx->rproc.cached_table);
+}
+
+/*
+ * parse_fw() registers the memory regions as carveouts and adds the crash
+ * dump segments: both SRAMs by the core's addresses, then each region that is
+ * not on an SRAM. The core frees both after every run, so they are added
+ * again on the next boot.
+ */
+static void test_parse_fw_registers_memory(struct kunit *test)
+{
+	static const struct {
+		dma_addr_t da;
+		size_t size;
+	} want[] = {
+		{ SUN55I_E906_SRAM_SPACE0_DA, A527_SRAM_SIZE },
+		{ SUN55I_E906_SRAM_SPACE1_DA, A527_SRAM1_SIZE },
+		{ A527_DRAM_PHYS, A527_DRAM_SIZE },
+	};
+	struct test_context *ctx = create_test_ctx(test);
+	struct mock_elf *elf = kunit_kzalloc(test, sizeof(*elf), GFP_KERNEL);
+	struct firmware fw = { .size = sizeof(*elf) };
+	struct rproc *rproc = mock_real_rproc(test, ctx);
+	struct rproc_dump_segment *seg;
+	struct rproc_mem_entry *mem;
+	int boot, n;
+
+	KUNIT_ASSERT_NOT_NULL(test, elf);
+	fw.data = (const u8 *)elf;
+	mock_elf_init(elf, false, 1);
+
+	rproc->priv = &ctx->priv;
+	ctx->priv.rproc = rproc;
+	ctx->priv.num_rmem = 2;
+	ctx->priv.rmem[0].name = "vram";	/* a pool on SRAM: already dumped */
+	ctx->priv.rmem[0].va = FAKE_SRAM1_PTR;
+	ctx->priv.rmem[0].phys = A527_SRAM1_PHYS;
+	ctx->priv.rmem[0].size = 0x1000;
+	ctx->priv.rmem[0].is_iomem = true;
+	ctx->priv.rmem[1].name = "dram";
+	ctx->priv.rmem[1].va = FAKE_DRAM_VA;
+	ctx->priv.rmem[1].phys = A527_DRAM_PHYS;
+	ctx->priv.rmem[1].size = A527_DRAM_SIZE;
+
+	for (boot = 0; boot < 2; boot++) {
+		KUNIT_ASSERT_EQ(test, sunxi_rproc_ops.parse_fw(rproc, &fw), 0);
+
+		n = 0;
+		list_for_each_entry(mem, &rproc->carveouts, node) {
+			KUNIT_ASSERT_LT(test, n, 2);
+			KUNIT_EXPECT_STREQ(test, mem->name, ctx->priv.rmem[n].name);
+			KUNIT_EXPECT_EQ(test, mem->da, (u32)ctx->priv.rmem[n].phys);
+			KUNIT_EXPECT_EQ(test, mem->is_iomem, ctx->priv.rmem[n].is_iomem);
+			n++;
+		}
+		KUNIT_EXPECT_EQ_MSG(test, n, 2, "boot %d", boot);
+
+		n = 0;
+		list_for_each_entry(seg, &rproc->dump_segments, node) {
+			KUNIT_ASSERT_LT(test, n, (int)ARRAY_SIZE(want));
+			KUNIT_EXPECT_EQ_MSG(test, seg->da, want[n].da, "segment %d", n);
+			KUNIT_EXPECT_EQ_MSG(test, seg->size, want[n].size, "segment %d", n);
+			n++;
+		}
+		KUNIT_EXPECT_EQ_MSG(test, n, (int)ARRAY_SIZE(want), "boot %d", boot);
+
+		/* The core's cleanup after a run */
+		rproc_resource_cleanup(rproc);
+		KUNIT_EXPECT_TRUE(test, list_empty(&rproc->carveouts));
+		KUNIT_EXPECT_TRUE(test, list_empty(&rproc->dump_segments));
+	}
 }
 
 static struct kunit_case sunxi_rproc_test_cases[] = {
@@ -1222,18 +1281,18 @@ static struct kunit_case sunxi_rproc_test_cases[] = {
 	KUNIT_CASE(test_start_rejects_bootaddr_overflow),
 	KUNIT_CASE(test_start_stop_arm_crash_irq),
 	KUNIT_CASE(test_stop_without_crash_irq),
+	KUNIT_CASE(test_crash_handler_disarms_and_reports),
 	/* Lifecycle: prepare and unprepare */
 	KUNIT_CASE(test_prepare_and_unprepare_remap),
 	KUNIT_CASE(test_prepare_clears_sram),
-	KUNIT_CASE(test_prepare_carveout_lifecycle),
 	KUNIT_CASE(test_prepare_power_up_failure),
-	KUNIT_CASE(test_prepare_adds_dump_segments),
 	KUNIT_CASE(test_prepare_unprepare_order),
 	KUNIT_CASE_PARAM(test_prepare_unwinds_failure, prepare_fail_gen_params),
 	KUNIT_CASE(test_start_core_reset_failure),
 	/* Firmware */
 	KUNIT_CASE(test_sanity_check_machine),
 	KUNIT_CASE(test_parse_fw_resource_table),
+	KUNIT_CASE(test_parse_fw_registers_memory),
 	/* kick and mailbox rx callback */
 	KUNIT_CASE(test_kick_payload_outlives_call),
 	KUNIT_CASE(test_rx_callback_defers_to_workqueue),

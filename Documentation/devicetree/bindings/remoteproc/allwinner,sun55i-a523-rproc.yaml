@@ -15,7 +15,7 @@ description:
   dedicated 256 KiB SRAM, can also use a second 256 KiB SRAM that is
   switched to it through a remap register, and can access DRAM. Its reset
   vector is set in a register of its configuration block, and it exchanges
-  notifications with the host through the CPUX message box.
+  notifications with the Cortex-A55 host through the message box.
 
 properties:
   compatible:
@@ -73,7 +73,7 @@ properties:
   memory-region:
     minItems: 1
     items:
-      - description: Virtio vring and buffer pool
+      - description: Virtio vring and buffer pool, a shared-dma-pool
       - description: Firmware code and data in DRAM
       - description: Trace buffer
 
@@ -90,10 +90,6 @@ properties:
       Interrupt the RISC-V core raises on a fatal error. The A523 has no
       dedicated line for this, so it is present only where the system
       integration provides one.
-
-  interrupt-names:
-    items:
-      - const: crash
 
   power-domains:
     items:
@@ -143,5 +139,7 @@ examples:
         power-domains = <&ppu PD_RISCV>, <&ppu PD_SRAM>;
         power-domain-names = "riscv", "sram";
         mboxes = <&msgbox 9>;
+        memory-region = <&riscv_vram>, <&riscv_dram>;
+        memory-region-names = "vram", "dram";
         firmware-name = "riscv-firmware.elf";
     };
