@@ -341,6 +341,9 @@ config SUN55I_MSGBOX
 	  Cortex-A55 host and the CPUS, HiFi4 DSP and XuanTie E906 RISC-V
 	  processors.
 
+	  To compile this driver as a module, choose M here: the module will
+	  be called sun55i-msgbox.
+
 config SUN55I_MSGBOX_KUNIT_TEST
 	tristate "KUnit tests for Allwinner sun55i msgbox" if !KUNIT_ALL_TESTS
 	depends on SUN55I_MSGBOX && KUNIT
