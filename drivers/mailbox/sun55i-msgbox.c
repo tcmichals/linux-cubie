@@ -302,6 +302,13 @@ static int sun55i_msgbox_send_data(struct mbox_chan *chan, void *data)
 	sun55i_chan_to_route(n, &local_n, &p, &remote_id, &remote_n);
 
 	/*
+	 * The core calls send_data() only with no request active, so a message
+	 * still held here is one it gave up on (a blocking send timed out):
+	 * drop it rather than send it after this newer one.
+	 */
+	clear_bit(n, &mbox->tx_held);
+
+	/*
 	 * Writing a full FIFO corrupts its count, so never do it. In write IRQ
 	 * mode the IRQ armed here retries the message once a slot is free. In
 	 * timer mode the core polls only a channel whose send succeeded, so

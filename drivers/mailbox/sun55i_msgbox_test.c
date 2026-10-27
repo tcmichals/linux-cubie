@@ -975,6 +975,31 @@ static void test_held_message_follows_earlier_ones(struct kunit *test)
 				    0x4E1D0000U | i, "message %d", i);
 }
 
+static void test_held_message_dropped_after_timeout(struct kunit *test)
+{
+	struct mock_msgbox_fixture *fix = create_mock_fixture(test);
+	u32 old = 0x01D, new = 0x2E3;
+	int i;
+
+	/* Channel 9's FIFO is full: the message is held */
+	for (i = 0; i < SUN55I_FIFO_MAX; i++)
+		mock_fifo_push(fix, SUN55I_PROC_RV, 2, 1, i);
+	KUNIT_EXPECT_EQ(test, sun55i_msgbox_chan_ops.send_data(&fix->chans[9], &old), 0);
+
+	/*
+	 * A blocking client times out and the core drops the request; the
+	 * remote then empties the FIFO and the client sends again.
+	 */
+	for (i = 0; i < SUN55I_FIFO_MAX; i++)
+		mock_fifo_pop(fix, SUN55I_PROC_RV, 2, 1);
+	KUNIT_EXPECT_EQ(test, sun55i_msgbox_chan_ops.send_data(&fix->chans[9], &new), 0);
+	KUNIT_EXPECT_TRUE(test, sun55i_msgbox_chan_ops.last_tx_done(&fix->chans[9]));
+
+	/* Only the new message went out; the abandoned one never follows it */
+	KUNIT_EXPECT_EQ(test, mock_fifo_pop(fix, SUN55I_PROC_RV, 2, 1), new);
+	KUNIT_EXPECT_EQ(test, *mock_msg_count(fix, SUN55I_PROC_RV, 2, 1) & MSG_NUM_MASK, 0U);
+}
+
 /* =============== Bounds =============== */
 
 static void test_functional_shutdown_drain_capped_at_fifo_max(struct kunit *test)
@@ -1199,6 +1224,7 @@ static struct kunit_case sun55i_msgbox_cases[] = {
 	KUNIT_CASE(test_irq_delivers_in_fifo_order),
 	KUNIT_CASE(test_send_data_keeps_order),
 	KUNIT_CASE(test_held_message_follows_earlier_ones),
+	KUNIT_CASE(test_held_message_dropped_after_timeout),
 	/* Hardirq Simulation Tests */
 	KUNIT_CASE(test_irq_spurious_returns_none),
 	KUNIT_CASE(test_irq_disabled_channel_ignored),
