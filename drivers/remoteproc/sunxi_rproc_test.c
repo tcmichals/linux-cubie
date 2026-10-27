@@ -124,6 +124,11 @@ static void mock_memset_io(void __iomem *addr, int val, size_t len)
 		memset(p, val, len);
 }
 
+static void mock_dump_cleanup(void *rproc)
+{
+	rproc_coredump_cleanup(rproc);
+}
+
 static struct test_context *create_test_ctx(struct kunit *test)
 {
 	struct test_context *ctx;
@@ -139,6 +144,8 @@ static struct test_context *create_test_ctx(struct kunit *test)
 	ctx->rproc.priv = &ctx->priv;
 	ctx->priv.rproc = &ctx->rproc;
 	INIT_LIST_HEAD(&ctx->rproc.carveouts);
+	INIT_LIST_HEAD(&ctx->rproc.dump_segments);
+	KUNIT_ASSERT_EQ(test, kunit_add_action_or_reset(test, mock_dump_cleanup, &ctx->rproc), 0);
 
 	/* prepare()/unprepare() take a runtime PM reference on the device */
 	ctx->priv.dev = kunit_device_register(test, "sunxi-rproc-test");
@@ -1018,6 +1025,46 @@ static void test_start_core_reset_failure(struct kunit *test)
 	KUNIT_EXPECT_FALSE(test, crash_irq_enabled(irq));
 }
 
+/* Crash dumps cover both SRAMs by the core's addresses and each DRAM carveout */
+static void test_prepare_adds_dump_segments(struct kunit *test)
+{
+	struct test_context *ctx = create_test_ctx(test);
+	struct rproc_dump_segment *seg;
+	static const struct {
+		dma_addr_t da;
+		size_t size;
+	} want[] = {
+		{ E906_SRAM_SPACE0_DA, 1024 },
+		{ E906_SRAM_SPACE1_DA, 1024 },
+		{ A527_DRAM_PHYS, A527_DRAM_SIZE },
+	};
+	int n = 0;
+
+	use_mmio_mocks(ctx);
+	ctx->priv.num_rmem = 2;
+	ctx->priv.rmem[0].name = "vram";	/* a pool on SRAM: already dumped */
+	ctx->priv.rmem[0].va = ctx->mock_sram1_buf;
+	ctx->priv.rmem[0].phys = A527_SRAM1_PHYS;
+	ctx->priv.rmem[0].size = sizeof(ctx->mock_sram1_buf);
+	ctx->priv.rmem[0].is_iomem = true;
+	ctx->priv.rmem[1].name = "dram";
+	ctx->priv.rmem[1].va = FAKE_DRAM_VA;
+	ctx->priv.rmem[1].phys = A527_DRAM_PHYS;
+	ctx->priv.rmem[1].size = A527_DRAM_SIZE;
+
+	KUNIT_ASSERT_EQ(test, sunxi_rproc_prepare(&ctx->rproc), 0);
+	list_for_each_entry(seg, &ctx->rproc.dump_segments, node) {
+		KUNIT_ASSERT_LT(test, n, (int)ARRAY_SIZE(want));
+		KUNIT_EXPECT_EQ_MSG(test, seg->da, want[n].da, "segment %d", n);
+		KUNIT_EXPECT_EQ_MSG(test, seg->size, want[n].size, "segment %d", n);
+		n++;
+	}
+	KUNIT_EXPECT_EQ(test, n, (int)ARRAY_SIZE(want));
+
+	KUNIT_EXPECT_EQ(test, sunxi_rproc_unprepare(&ctx->rproc), 0);
+	free_carveouts(ctx);
+}
+
 /* ==================== prepare: power-up failure ==================== */
 
 static int mock_runtime_resume_fails(struct device *dev)
@@ -1173,6 +1220,7 @@ static struct kunit_case sunxi_rproc_test_cases[] = {
 	KUNIT_CASE(test_prepare_clears_sram),
 	KUNIT_CASE(test_prepare_carveout_lifecycle),
 	KUNIT_CASE(test_prepare_power_up_failure),
+	KUNIT_CASE(test_prepare_adds_dump_segments),
 	KUNIT_CASE(test_prepare_unprepare_order),
 	KUNIT_CASE_PARAM(test_prepare_unwinds_failure, prepare_fail_gen_params),
 	KUNIT_CASE(test_start_core_reset_failure),

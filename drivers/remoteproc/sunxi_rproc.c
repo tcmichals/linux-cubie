@@ -127,6 +127,32 @@ static irqreturn_t sunxi_rproc_crash_handler(int irq, void *data)
 	return IRQ_HANDLED;
 }
 
+/*
+ * Crash dumps cover both SRAMs, by the core's addresses so a dump loads into a
+ * debugger as is, and every carveout outside them. rproc_resource_cleanup()
+ * drops the segments after every run; recovery keeps them.
+ */
+static void sunxi_rproc_add_dump_segments(struct rproc *rproc)
+{
+	struct sunxi_rproc *priv = rproc->priv;
+	unsigned int i;
+	int ret;
+
+	ret = rproc_coredump_add_segment(rproc, E906_SRAM_SPACE0_DA, priv->r_sram_size);
+	if (!ret)
+		ret = rproc_coredump_add_segment(rproc, E906_SRAM_SPACE1_DA, priv->r_sram1_size);
+	for (i = 0; !ret && i < priv->num_rmem; i++) {
+		if (priv->rmem[i].is_iomem)
+			continue;	/* placed on an SRAM, already dumped */
+		ret = rproc_coredump_add_segment(rproc, (u32)priv->rmem[i].phys,
+						 priv->rmem[i].size);
+	}
+
+	/* A dump is a debugging aid: a missing segment does not stop the boot */
+	if (ret)
+		dev_warn(priv->dev, "crash dump segments incomplete: %d\n", ret);
+}
+
 VISIBLE_IF_KUNIT
 int sunxi_rproc_prepare(struct rproc *rproc)
 {
@@ -218,6 +244,8 @@ int sunxi_rproc_prepare(struct rproc *rproc)
 	/* rproc_resource_cleanup() frees rproc->carveouts after every run */
 	for (i = 0; i < priv->num_rmem; i++)
 		rproc_add_carveout(rproc, mem[i]);
+
+	sunxi_rproc_add_dump_segments(rproc);
 
 	return 0;
 
@@ -492,6 +520,11 @@ static int sunxi_rproc_register_mem(struct platform_device *pdev, struct rproc *
 	return 0;
 }
 
+static void sunxi_rproc_release_dma_pool(void *dev)
+{
+	of_reserved_mem_device_release(dev);
+}
+
 static int sunxi_rproc_parse_memory_regions(struct sunxi_rproc *priv)
 {
 	struct device *dev = priv->dev;
@@ -510,10 +543,13 @@ static int sunxi_rproc_parse_memory_regions(struct sunxi_rproc *priv)
 	 * -ENODEV: it is not a DMA pool (a DT without virtio)
 	 */
 	ret = of_reserved_mem_device_init(dev);
-	if (!ret)
-		priv->has_reserved_mem = true;
-	else if (ret != -ENODEV)
+	if (!ret) {
+		ret = devm_add_action_or_reset(dev, sunxi_rproc_release_dma_pool, dev);
+		if (ret)
+			return ret;
+	} else if (ret != -ENODEV) {
 		return dev_err_probe(dev, ret, "failed to set up the DMA pool\n");
+	}
 
 	for (i = 0; i < count; i++) {
 		struct sunxi_rproc_rmem *rmem = &priv->rmem[i];
@@ -578,8 +614,10 @@ static int sunxi_rproc_probe(struct platform_device *pdev)
 	int crash_irq;
 	int ret;
 
-	/* firmware-name is optional; keep the default without it */
-	rproc_of_parse_firmware(dev, 0, &fw_name);
+	/* firmware-name is optional: the default is kept only when it is absent */
+	ret = rproc_of_parse_firmware(dev, 0, &fw_name);
+	if (ret && ret != -EINVAL)
+		return dev_err_probe(dev, ret, "invalid firmware-name\n");
 
 	rproc = devm_rproc_alloc(dev, dev_name(dev), &sunxi_rproc_ops,
 				 fw_name, sizeof(*priv));
@@ -652,7 +690,7 @@ static int sunxi_rproc_probe(struct platform_device *pdev)
 	/* memory-region: DMA pool and carveouts */
 	ret = sunxi_rproc_parse_memory_regions(priv);
 	if (ret)
-		goto err_mem_release;
+		return ret;
 
 	/* Optional crash interrupt */
 	crash_irq = platform_get_irq_byname_optional(pdev, "crash");
@@ -662,14 +700,11 @@ static int sunxi_rproc_probe(struct platform_device *pdev)
 						IRQF_ONESHOT | IRQF_NO_AUTOEN,
 						"sunxi-rproc-crash",
 						priv);
-		if (ret) {
-			dev_err_probe(dev, ret, "failed to request crash IRQ\n");
-			goto err_mem_release;
-		}
+		if (ret)
+			return dev_err_probe(dev, ret, "failed to request crash IRQ\n");
 		priv->crash_irq = crash_irq;
 	} else if (crash_irq != -ENXIO) {
-		ret = dev_err_probe(dev, crash_irq, "failed to get crash IRQ\n");
-		goto err_mem_release;
+		return dev_err_probe(dev, crash_irq, "failed to get crash IRQ\n");
 	}
 
 	/* Mailbox (optional: without it the core runs standalone) */
@@ -678,10 +713,8 @@ static int sunxi_rproc_probe(struct platform_device *pdev)
 	if (of_property_present(dev->of_node, "mboxes")) {
 		priv->workqueue = devm_alloc_ordered_workqueue(dev, "%s", WQ_HIGHPRI,
 							       dev_name(dev));
-		if (!priv->workqueue) {
-			ret = -ENOMEM;
-			goto err_mem_release;
-		}
+		if (!priv->workqueue)
+			return -ENOMEM;
 
 		priv->cl.dev = dev;
 		priv->cl.rx_callback = sunxi_rproc_mb_rx_callback;
@@ -691,10 +724,9 @@ static int sunxi_rproc_probe(struct platform_device *pdev)
 		/* One channel carries kicks to the core and notifications from it */
 		priv->mbox_chan = mbox_request_channel(&priv->cl, 0);
 		if (IS_ERR(priv->mbox_chan)) {
-			ret = dev_err_probe(dev, PTR_ERR(priv->mbox_chan),
-					    "failed to request mailbox\n");
+			ret = PTR_ERR(priv->mbox_chan);
 			priv->mbox_chan = NULL;
-			goto err_mem_release;
+			return dev_err_probe(dev, ret, "failed to request mailbox\n");
 		}
 	} else {
 		dev_dbg(dev, "no mboxes configured; operating in standalone mode\n");
@@ -704,18 +736,11 @@ static int sunxi_rproc_probe(struct platform_device *pdev)
 
 	ret = rproc_add(rproc);
 	if (ret) {
-		dev_err_probe(dev, ret, "failed to register rproc device\n");
-		goto err_mbox_release;
+		sunxi_rproc_free_mbox(priv);
+		return dev_err_probe(dev, ret, "failed to register rproc device\n");
 	}
 
 	return 0;
-
-err_mbox_release:
-	sunxi_rproc_free_mbox(priv);
-err_mem_release:
-	if (priv->has_reserved_mem)
-		of_reserved_mem_device_release(dev);
-	return ret;
 }
 
 static void sunxi_rproc_remove(struct platform_device *pdev)
@@ -730,9 +755,6 @@ static void sunxi_rproc_remove(struct platform_device *pdev)
 	rproc_del(rproc);
 
 	sunxi_rproc_free_mbox(priv);
-
-	if (priv->has_reserved_mem)
-		of_reserved_mem_device_release(&pdev->dev);
 }
 
 static const struct of_device_id sunxi_rproc_of_match[] = {

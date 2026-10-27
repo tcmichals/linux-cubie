@@ -93,7 +93,6 @@ struct sunxi_rproc {
 	struct sunxi_rproc_rmem rmem[SUNXI_RPROC_MAX_RMEM];
 	unsigned int num_rmem;
 	unsigned long flags;
-	bool has_reserved_mem;
 	int crash_irq;
 	struct mbox_client cl;
 	struct mbox_chan *mbox_chan;
