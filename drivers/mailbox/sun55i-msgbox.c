@@ -462,11 +462,6 @@ const struct mbox_chan_ops sun55i_msgbox_chan_ops = {
 };
 EXPORT_SYMBOL_IF_KUNIT(sun55i_msgbox_chan_ops);
 
-static void sun55i_msgbox_assert_reset(void *data)
-{
-	reset_control_assert(data);
-}
-
 static int sun55i_msgbox_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
@@ -511,13 +506,15 @@ static int sun55i_msgbox_probe(struct platform_device *pdev)
 	if (IS_ERR(rst))
 		return dev_err_probe(dev, PTR_ERR(rst), "failed to get resets\n");
 
+	/*
+	 * The DSP, CPUS and RISC-V banks also carry traffic between the other
+	 * processors, which may already be running. Asserting the reset would
+	 * wipe their FIFOs, so it is never asserted, on unbind or on a probe
+	 * failure, as in sun6i-msgbox.
+	 */
 	ret = reset_control_deassert(rst);
 	if (ret)
 		return dev_err_probe(dev, ret, "failed to deassert reset\n");
-
-	ret = devm_add_action_or_reset(dev, sun55i_msgbox_assert_reset, rst);
-	if (ret)
-		return ret;
 
 	/*
 	 * Disable all read IRQs and clear status, and disarm our write IRQs in
