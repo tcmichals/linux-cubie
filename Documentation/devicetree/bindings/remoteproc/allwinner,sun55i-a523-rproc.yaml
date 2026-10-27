@@ -86,7 +86,10 @@ properties:
 
   interrupts:
     maxItems: 1
-    description: Crash notification from the RISC-V core
+    description:
+      Interrupt the RISC-V core raises on a fatal error. The A523 has no
+      dedicated line for this, so it is present only where the system
+      integration provides one.
 
   interrupt-names:
     items:
