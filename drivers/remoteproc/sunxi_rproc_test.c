@@ -32,6 +32,7 @@
 #include <linux/interrupt.h>
 #include <linux/io.h>
 #include <linux/irq.h>
+#include <linux/irqdesc.h>
 #include <linux/mailbox_controller.h>
 #include <linux/pm_runtime.h>
 #include <linux/property.h>
@@ -708,6 +709,12 @@ static bool crash_irq_enabled(int irq)
 	return !irqd_irq_disabled(irq_get_irq_data(irq));
 }
 
+/* Disable depth; irq_to_desc() is not exported, so go through the irq_data */
+static unsigned int crash_irq_depth(int irq)
+{
+	return container_of(irq_get_irq_data(irq), struct irq_desc, irq_data)->depth;
+}
+
 static void test_start_stop_arm_crash_irq(struct kunit *test)
 {
 	struct test_context *ctx = create_test_ctx(test);
@@ -721,13 +728,13 @@ static void test_start_stop_arm_crash_irq(struct kunit *test)
 	KUNIT_ASSERT_EQ(test, sunxi_rproc_start(&ctx->rproc), 0);
 	KUNIT_ASSERT_EQ(test, sunxi_rproc_start(&ctx->rproc), 0);
 	KUNIT_EXPECT_TRUE(test, crash_irq_enabled(irq));
-	KUNIT_EXPECT_EQ(test, irq_to_desc(irq)->depth, 0U);
+	KUNIT_EXPECT_EQ(test, crash_irq_depth(irq), 0U);
 
 	/* stop() disarms it; a second stop() does not disable it twice */
 	KUNIT_EXPECT_EQ(test, sunxi_rproc_ops.stop(&ctx->rproc), 0);
 	KUNIT_EXPECT_FALSE(test, crash_irq_enabled(irq));
 	KUNIT_EXPECT_EQ(test, sunxi_rproc_ops.stop(&ctx->rproc), 0);
-	KUNIT_EXPECT_EQ(test, irq_to_desc(irq)->depth, 1U);
+	KUNIT_EXPECT_EQ(test, crash_irq_depth(irq), 1U);
 
 	/* And arms it again on the next start() */
 	KUNIT_EXPECT_EQ(test, sunxi_rproc_start(&ctx->rproc), 0);
