@@ -87,8 +87,6 @@ struct mock_msgbox_fixture {
 	int fifo_reads;
 	/* Next write that disarms a channel's write IRQ is undone, as a handler would */
 	bool rearm_on_disarm;
-	/* WRITE_IRQ_STATUS reads seen by the stubs, i.e. from the test thread */
-	int wr_status_reads;
 	/* Every bit ever written to the host bank's READ_IRQ_ENABLE, per port */
 	u32 rd_en_written[SUN55I_NUM_ROUTES];
 	/* Message FIFOs: bank, port n, channel p */
@@ -224,10 +222,8 @@ static u32 mock_readl(void __iomem *addr)
 		return val;
 	}
 
-	if (reg == SUN55I_MSGBOX_WRITE_IRQ_STATUS(0)) {
-		fix->wr_status_reads++;
+	if (reg == SUN55I_MSGBOX_WRITE_IRQ_STATUS(0))
 		mock_raise_write_pending(fix, bank, n, r);
-	}
 
 	return *r;
 }
@@ -1134,19 +1130,30 @@ static void mock_startup(struct kunit *test, struct mbox_chan *chan)
 }
 
 /*
- * Fire the TX-done line and wait for its handler. With forced IRQ threading
- * (PREEMPT_RT, threadirqs) the handler runs in an IRQ thread, where the MMIO
- * stubs, which follow the test thread, do not apply: skip the test then.
+ * Fire the TX-done line. With forced IRQ threading (PREEMPT_RT, threadirqs)
+ * its handler would run in the line's IRQ thread, where the MMIO stubs, which
+ * follow the test thread, do not apply: run the handler startup() registered
+ * here instead, as irq_forced_thread_fn() runs it.
  */
 static void fire_tx_irq(struct kunit *test, int irq)
 {
-	struct mock_msgbox_fixture *fix = test->priv;
-	int reads = fix->wr_status_reads;
+	struct irqaction *action = irq_to_desc(irq)->action;
+	irqreturn_t ret;
 
-	KUNIT_ASSERT_EQ(test, generic_handle_irq_safe(irq), 0);
-	synchronize_irq(irq);
-	if (fix->wr_status_reads == reads)
-		kunit_skip(test, "TX-done handler ran in an IRQ thread (forced threading)");
+	KUNIT_ASSERT_NOT_NULL(test, action);
+	if (!action->thread_fn) {
+		KUNIT_ASSERT_EQ(test, generic_handle_irq_safe(irq), 0);
+		return;
+	}
+
+	local_bh_disable();
+	if (!IS_ENABLED(CONFIG_PREEMPT_RT))
+		local_irq_disable();
+	ret = action->thread_fn(irq, action->dev_id);
+	if (!IS_ENABLED(CONFIG_PREEMPT_RT))
+		local_irq_enable();
+	local_bh_enable();
+	KUNIT_EXPECT_EQ(test, ret, IRQ_HANDLED);
 }
 
 static void test_tx_irq_handler_reports_tx_done(struct kunit *test)
