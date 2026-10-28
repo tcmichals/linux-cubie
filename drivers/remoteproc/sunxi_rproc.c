@@ -283,7 +283,7 @@ int sunxi_rproc_prepare(struct rproc *rproc)
 		goto err_disable_sram_clk;
 	}
 
-	/* 4. Switch SRAM A3_2 (SRAM space 1) to the RISC-V core: REMAP bit 1 */
+	/* 4. Share SRAM A3_2 with the MCU subsystem: REMAP bit 1 */
 	remap_val = sunxi_rproc_readl(priv->remap_va) | SUNXI_REMAP_SRAMA3_2_BIT;
 	sunxi_rproc_writel(remap_val, priv->remap_va);
 	sunxi_rproc_readl(priv->remap_va);

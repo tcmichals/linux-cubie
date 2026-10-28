@@ -12,8 +12,9 @@ maintainers:
 description:
   The Allwinner A523, A527 and T527 (sun55i) SoCs contain a T-Head XuanTie
   E906 RISC-V core next to the Cortex-A55 cluster. The core runs from a
-  dedicated 256 KiB SRAM, can also use a second 256 KiB SRAM that is
-  switched to it through a remap register, and can access DRAM. Its reset
+  dedicated 256 KiB SRAM, can also use a second 256 KiB SRAM and DRAM,
+  and a remap register shared with the HiFi4 DSP shares a further 512 KiB
+  SRAM (SRAM A3_2) with the core's subsystem. Its reset
   vector is set in a register of its configuration block, and it exchanges
   notifications with the Cortex-A55 host through the message box.
 
@@ -25,7 +26,7 @@ properties:
     items:
       - description: Configuration block, including the boot address register
       - description: SRAM A3_0, the core's dedicated SRAM space 0
-      - description: SRAM A3_1, the core's switchable SRAM space 1
+      - description: SRAM A3_1, the core's SRAM space 1
       - description: SRAM remap control register
 
   reg-names:

@@ -43,7 +43,7 @@ struct sunxi_rproc_att {
 #define SUN55I_E906_STA_ADD_REG		0x0204
 
 /* Remap register (R-PRCM 0x07010364), shared with the HiFi4 DSP: bit 1 is ours */
-#define SUNXI_REMAP_SRAMA3_2_BIT	BIT(1)	/* SRAM A3_2 (space 1) to the MCU */
+#define SUNXI_REMAP_SRAMA3_2_BIT	BIT(1)	/* share SRAM A3_2 with the MCU */
 
 #define SUNXI_RPROC_MAX_RMEM		3
 #define SUNXI_RPROC_CRASH_IRQ_ARMED	0
