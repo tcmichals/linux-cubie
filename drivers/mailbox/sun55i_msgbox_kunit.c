@@ -1137,7 +1137,9 @@ static void mock_startup(struct kunit *test, struct mbox_chan *chan)
  */
 static void fire_tx_irq(struct kunit *test, int irq)
 {
-	struct irqaction *action = irq_to_desc(irq)->action;
+	/* irq_to_desc() is not exported, so go through the irq_data */
+	struct irqaction *action = container_of(irq_get_irq_data(irq), struct irq_desc,
+						irq_data)->action;
 	irqreturn_t ret;
 
 	KUNIT_ASSERT_NOT_NULL(test, action);
