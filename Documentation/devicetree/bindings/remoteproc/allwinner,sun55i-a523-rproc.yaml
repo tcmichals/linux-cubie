@@ -14,9 +14,9 @@ description:
   E906 RISC-V core next to the Cortex-A55 cluster. The core runs from a
   dedicated 256 KiB SRAM, can also use a second 256 KiB SRAM and DRAM,
   and a remap register shared with the HiFi4 DSP shares a further 512 KiB
-  SRAM (SRAM A3_2) with the core's subsystem. Its reset
-  vector is set in a register of its configuration block, and it exchanges
-  notifications with the Cortex-A55 host through the message box.
+  SRAM (SRAM A3_2) with the core's subsystem. Its reset vector is set in a
+  register of its configuration block, and it exchanges notifications with
+  the Cortex-A55 host through the message box.
 
 properties:
   compatible:
