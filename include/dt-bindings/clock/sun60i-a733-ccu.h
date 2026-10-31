@@ -91,5 +91,8 @@
 #define CLK_USB2_U2_REF		86
 #define CLK_USB2_SUSPEND	87
 #define CLK_USB2_MF		88
+#define CLK_MBUS_CSI		89
+#define CLK_CSI_TOP		90
+#define CLK_BUS_CSI		91
 
 #endif

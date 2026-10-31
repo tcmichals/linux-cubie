@@ -170,20 +170,18 @@ complete:
 	return IRQ_HANDLED;
 }
 
-static int sun6i_csi_suspend(struct device *dev)
+static void
+sun6i_csi_legacy_runtime_suspend(struct sun6i_csi_device *csi_dev)
 {
-	struct sun6i_csi_device *csi_dev = dev_get_drvdata(dev);
-
 	reset_control_assert(csi_dev->reset);
 	clk_disable_unprepare(csi_dev->clock_ram);
 	clk_disable_unprepare(csi_dev->clock_mod);
-
-	return 0;
 }
 
-static int sun6i_csi_resume(struct device *dev)
+static int
+sun6i_csi_legacy_runtime_resume(struct sun6i_csi_device *csi_dev)
 {
-	struct sun6i_csi_device *csi_dev = dev_get_drvdata(dev);
+	struct device *dev = csi_dev->dev;
 	int ret;
 
 	ret = reset_control_deassert(csi_dev->reset);
@@ -215,6 +213,22 @@ error_reset:
 	return ret;
 }
 
+static int sun6i_csi_suspend(struct device *dev)
+{
+	struct sun6i_csi_device *csi_dev = dev_get_drvdata(dev);
+
+	csi_dev->variant->hw_ops->runtime_suspend(csi_dev);
+
+	return 0;
+}
+
+static int sun6i_csi_resume(struct device *dev)
+{
+	struct sun6i_csi_device *csi_dev = dev_get_drvdata(dev);
+
+	return csi_dev->variant->hw_ops->runtime_resume(csi_dev);
+}
+
 static const struct dev_pm_ops sun6i_csi_pm_ops = {
 	.runtime_suspend	= sun6i_csi_suspend,
 	.runtime_resume		= sun6i_csi_resume,
@@ -227,18 +241,14 @@ static const struct regmap_config sun6i_csi_regmap_config = {
 	.max_register	= 0x9c,
 };
 
-static int sun6i_csi_resources_setup(struct sun6i_csi_device *csi_dev,
-				     struct platform_device *platform_dev)
+static int sun6i_csi_legacy_resources_setup(struct sun6i_csi_device *csi_dev,
+					    struct platform_device *platform_dev)
 {
 	struct device *dev = csi_dev->dev;
-	const struct sun6i_csi_variant *variant;
+	const struct sun6i_csi_variant *variant = csi_dev->variant;
 	void __iomem *io_base;
 	int ret;
 	int irq;
-
-	variant = of_device_get_match_data(dev);
-	if (!variant)
-		return -EINVAL;
 
 	/* Registers */
 
@@ -298,10 +308,6 @@ static int sun6i_csi_resources_setup(struct sun6i_csi_device *csi_dev,
 		goto error_clock_rate_exclusive;
 	}
 
-	/* Runtime PM */
-
-	pm_runtime_enable(dev);
-
 	return 0;
 
 error_clock_rate_exclusive:
@@ -310,10 +316,38 @@ error_clock_rate_exclusive:
 	return ret;
 }
 
+static void
+sun6i_csi_legacy_resources_cleanup(struct sun6i_csi_device *csi_dev)
+{
+	clk_rate_exclusive_put(csi_dev->clock_mod);
+}
+
+static int sun6i_csi_resources_setup(struct sun6i_csi_device *csi_dev,
+				     struct platform_device *platform_dev)
+{
+	struct device *dev = csi_dev->dev;
+	const struct sun6i_csi_variant *variant;
+	int ret;
+
+	variant = of_device_get_match_data(dev);
+	if (!variant)
+		return -EINVAL;
+
+	csi_dev->variant = variant;
+
+	ret = variant->hw_ops->resources_setup(csi_dev, platform_dev);
+	if (ret)
+		return ret;
+
+	pm_runtime_enable(dev);
+
+	return 0;
+}
+
 static void sun6i_csi_resources_cleanup(struct sun6i_csi_device *csi_dev)
 {
 	pm_runtime_disable(csi_dev->dev);
-	clk_rate_exclusive_put(csi_dev->clock_mod);
+	csi_dev->variant->hw_ops->resources_cleanup(csi_dev);
 }
 
 static int sun6i_csi_probe(struct platform_device *platform_dev)
@@ -387,12 +421,29 @@ static void sun6i_csi_remove(struct platform_device *pdev)
 	sun6i_csi_resources_cleanup(csi_dev);
 }
 
+static const struct sun6i_csi_hw_ops sun6i_csi_legacy_hw_ops = {
+	.resources_setup	= sun6i_csi_legacy_resources_setup,
+	.resources_cleanup	= sun6i_csi_legacy_resources_cleanup,
+	.runtime_resume		= sun6i_csi_legacy_runtime_resume,
+	.runtime_suspend	= sun6i_csi_legacy_runtime_suspend,
+	.irq_enable		= sun6i_csi_bridge_irq_enable,
+	.irq_disable		= sun6i_csi_bridge_irq_disable,
+	.irq_clear		= sun6i_csi_bridge_irq_clear,
+	.bridge_enable		= sun6i_csi_bridge_enable,
+	.bridge_disable		= sun6i_csi_bridge_disable,
+	.bridge_configure	= sun6i_csi_bridge_configure,
+	.capture_configure	= sun6i_csi_capture_configure,
+	.buffer_configure	= sun6i_csi_capture_buffer_configure,
+};
+
 static const struct sun6i_csi_variant sun6i_a31_csi_variant = {
 	.clock_mod_rate	= 297000000,
+	.hw_ops			= &sun6i_csi_legacy_hw_ops,
 };
 
 static const struct sun6i_csi_variant sun50i_a64_csi_variant = {
 	.clock_mod_rate	= 300000000,
+	.hw_ops			= &sun6i_csi_legacy_hw_ops,
 };
 
 static const struct of_device_id sun6i_csi_of_match[] = {
@@ -415,6 +466,10 @@ static const struct of_device_id sun6i_csi_of_match[] = {
 	{
 		.compatible	= "allwinner,sun50i-a64-csi",
 		.data		= &sun50i_a64_csi_variant,
+	},
+	{
+		.compatible	= "allwinner,sun55i-a523-csi",
+		.data		= &sun55i_a523_csi_variant,
 	},
 	{},
 };

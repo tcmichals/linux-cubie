@@ -24,6 +24,8 @@ enum sun6i_csi_port {
 	SUN6I_CSI_PORT_ISP		= 2,
 };
 
+struct platform_device;
+
 struct sun6i_csi_buffer {
 	struct vb2_v4l2_buffer		v4l2_buffer;
 	struct list_head		list;
@@ -48,12 +50,40 @@ struct sun6i_csi_device {
 	struct clk			*clock_ram;
 	struct reset_control		*reset;
 
-	bool				isp_available;
+	bool                            isp_available;
+
+	const struct sun6i_csi_variant  *variant;
+	void                            *priv;
+};
+
+struct sun6i_csi_hw_ops {
+	int (*resources_setup)(struct sun6i_csi_device *csi_dev,
+			       struct platform_device *platform_dev);
+	void (*resources_cleanup)(struct sun6i_csi_device *csi_dev);
+	int (*runtime_resume)(struct sun6i_csi_device *csi_dev);
+	void (*runtime_suspend)(struct sun6i_csi_device *csi_dev);
+
+	void (*irq_enable)(struct sun6i_csi_device *csi_dev);
+	void (*irq_disable)(struct sun6i_csi_device *csi_dev);
+	void (*irq_clear)(struct sun6i_csi_device *csi_dev);
+
+	void (*bridge_enable)(struct sun6i_csi_device *csi_dev);
+	void (*bridge_disable)(struct sun6i_csi_device *csi_dev);
+	void (*bridge_configure)(struct sun6i_csi_device *csi_dev,
+				 struct sun6i_csi_bridge_source *source);
+
+	void (*capture_configure)(struct sun6i_csi_device *csi_dev);
+	void (*buffer_configure)(struct sun6i_csi_device *csi_dev,
+				 struct sun6i_csi_buffer *csi_buffer);
 };
 
 struct sun6i_csi_variant {
-	unsigned long	clock_mod_rate;
+	unsigned long                   clock_mod_rate;
+	const struct sun6i_csi_hw_ops   *hw_ops;
+	bool                            source_stream_last;
 };
+
+extern const struct sun6i_csi_variant sun55i_a523_csi_variant;
 
 /* ISP */
 

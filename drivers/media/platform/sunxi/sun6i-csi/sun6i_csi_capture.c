@@ -329,9 +329,8 @@ static bool sun6i_csi_capture_format_match(u32 pixelformat, u32 mbus_code)
 
 /* Capture */
 
-static void
-sun6i_csi_capture_buffer_configure(struct sun6i_csi_device *csi_dev,
-				   struct sun6i_csi_buffer *csi_buffer)
+void sun6i_csi_capture_buffer_configure(struct sun6i_csi_device *csi_dev,
+					 struct sun6i_csi_buffer *csi_buffer)
 {
 	struct regmap *regmap = csi_dev->regmap;
 	const struct v4l2_format_info *info;
@@ -489,7 +488,7 @@ void sun6i_csi_capture_state_update(struct sun6i_csi_device *csi_dev)
 	csi_buffer = list_first_entry(&state->queue, struct sun6i_csi_buffer,
 				      list);
 
-	sun6i_csi_capture_buffer_configure(csi_dev, csi_buffer);
+	csi_dev->variant->hw_ops->buffer_configure(csi_dev, csi_buffer);
 
 	list_del(&csi_buffer->list);
 

@@ -21,6 +21,19 @@ enum sun6i_mipi_csi2_pad {
 	SUN6I_MIPI_CSI2_PAD_COUNT	= 2,
 };
 
+struct sun6i_mipi_csi2_device;
+
+struct sun6i_mipi_csi2_variant {
+	int     (*configure)(struct sun6i_mipi_csi2_device *csi2_dev);
+	void    (*enable)(struct sun6i_mipi_csi2_device *csi2_dev);
+	void    (*disable)(struct sun6i_mipi_csi2_device *csi2_dev);
+	unsigned long   mod_rate;
+	bool    has_bus_clock;
+	bool    has_mod_clock;
+	bool    has_reset;
+	bool    source_stream_last;
+};
+
 struct sun6i_mipi_csi2_format {
 	u32	mbus_code;
 	u8	data_type;
@@ -40,6 +53,7 @@ struct sun6i_mipi_csi2_bridge {
 
 struct sun6i_mipi_csi2_device {
 	struct device			*dev;
+	const struct sun6i_mipi_csi2_variant *variant;
 
 	struct regmap			*regmap;
 	struct clk			*clock_mod;

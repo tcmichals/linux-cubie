@@ -308,6 +308,14 @@
 				allwinner,pinmux = <2>;
 				bias-pull-up;
 			};
+
+			mipi1_pins: mipi1-pins {
+				pins = "PK10", "PK11", "PK12",
+				       "PK13", "PK14", "PK15";
+				function = "mcsib";
+				allwinner,pinmux = <2>;
+				drive-strength = <10>;
+			};
 		};
 
 		ccu: clock-controller@2002000 {
@@ -603,6 +611,77 @@
 			#address-cells = <1>;
 			#size-cells = <0>;
 			status = "okay";
+		};
+
+		dphy1: phy@5810200 {
+			compatible = "allwinner,sun55i-a523-mipi-dphy";
+			reg = <0x05810200 0x100>,
+			      <0x05810000 0x100>;
+			reg-names = "phy", "combo-top";
+			#phy-cells = <0>;
+			pinctrl-names = "default";
+			pinctrl-0 = <&mipi1_pins>;
+			status = "okay";
+		};
+
+		mipi1: csi@5811400 {
+			compatible = "allwinner,sun55i-a523-mipi-csi2";
+			reg = <0x05811400 0x400>;
+
+			phys = <&dphy1>;
+			phy-names = "dphy";
+
+			status = "okay";
+
+			ports {
+				#address-cells = <1>;
+				#size-cells = <0>;
+
+				mipi1_in: port@0 {
+					reg = <0>;
+				};
+
+				mipi1_out: port@1 {
+					reg = <1>;
+
+					mipi1_out_csi: endpoint {
+						remote-endpoint = <&csi_in_mipi1>;
+					};
+				};
+			};
+		};
+
+		csi: csi@5800800 {
+			compatible = "allwinner,sun55i-a523-csi";
+			reg = <0x05800800 0x200>,
+			      <0x05821000 0x1000>,
+			      <0x05830000 0x1000>,
+			      <0x05800000 0x800>;
+			reg-names = "top", "parser", "dma", "ccu";
+
+			interrupts = <GIC_SPI 117 IRQ_TYPE_LEVEL_HIGH>;
+
+			clocks = <&ccu CLK_BUS_CSI>,
+				 <&ccu CLK_CSI_TOP>,
+				 <&ccu CLK_MBUS_CSI>;
+			clock-names = "bus", "top", "mbus";
+
+			resets = <&ccu RST_BUS_CSI>;
+
+			status = "okay";
+
+			ports {
+				#address-cells = <1>;
+				#size-cells = <0>;
+
+				csi_in: port@1 {
+					reg = <1>;
+
+					csi_in_mipi1: endpoint {
+						remote-endpoint = <&mipi1_out_csi>;
+					};
+				};
+			};
 		};
 	};
 };

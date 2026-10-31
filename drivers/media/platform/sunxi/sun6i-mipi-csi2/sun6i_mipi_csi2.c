@@ -4,11 +4,14 @@
  * Author: Paul Kocialkowski <paul.kocialkowski@bootlin.com>
  */
 
+#include <linux/bitfield.h>
 #include <linux/clk.h>
 #include <linux/module.h>
 #include <linux/of.h>
+#include <linux/of_address.h>
 #include <linux/phy/phy.h>
 #include <linux/platform_device.h>
+#include <linux/property.h>
 #include <linux/pm_runtime.h>
 #include <linux/regmap.h>
 #include <linux/reset.h>
@@ -79,7 +82,7 @@ sun6i_mipi_csi2_format_find(u32 mbus_code)
 
 /* Controller */
 
-static void sun6i_mipi_csi2_enable(struct sun6i_mipi_csi2_device *csi2_dev)
+static void sun6i_a31_mipi_csi2_enable(struct sun6i_mipi_csi2_device *csi2_dev)
 {
 	struct regmap *regmap = csi2_dev->regmap;
 
@@ -87,7 +90,7 @@ static void sun6i_mipi_csi2_enable(struct sun6i_mipi_csi2_device *csi2_dev)
 			   SUN6I_MIPI_CSI2_CTL_EN, SUN6I_MIPI_CSI2_CTL_EN);
 }
 
-static void sun6i_mipi_csi2_disable(struct sun6i_mipi_csi2_device *csi2_dev)
+static void sun6i_a31_mipi_csi2_disable(struct sun6i_mipi_csi2_device *csi2_dev)
 {
 	struct regmap *regmap = csi2_dev->regmap;
 
@@ -95,7 +98,7 @@ static void sun6i_mipi_csi2_disable(struct sun6i_mipi_csi2_device *csi2_dev)
 			   SUN6I_MIPI_CSI2_CTL_EN, 0);
 }
 
-static void sun6i_mipi_csi2_configure(struct sun6i_mipi_csi2_device *csi2_dev)
+static int sun6i_a31_mipi_csi2_configure(struct sun6i_mipi_csi2_device *csi2_dev)
 {
 	struct regmap *regmap = csi2_dev->regmap;
 	unsigned int lanes_count =
@@ -107,7 +110,7 @@ static void sun6i_mipi_csi2_configure(struct sun6i_mipi_csi2_device *csi2_dev)
 
 	format = sun6i_mipi_csi2_format_find(mbus_format->code);
 	if (WARN_ON(!format))
-		return;
+		return -EINVAL;
 
 	/*
 	 * The enable flow in the Allwinner BSP is a bit different: the enable
@@ -163,6 +166,8 @@ static void sun6i_mipi_csi2_configure(struct sun6i_mipi_csi2_device *csi2_dev)
 
 	regmap_write(regmap, SUN6I_MIPI_CSI2_CH_INT_PD_REG,
 		     SUN6I_MIPI_CSI2_CH_INT_PD_CLEAR);
+
+	return 0;
 }
 
 /* V4L2 Subdev */
@@ -187,7 +192,9 @@ static int sun6i_mipi_csi2_s_stream(struct v4l2_subdev *subdev, int on)
 		return -ENODEV;
 
 	if (!on) {
-		v4l2_subdev_call(source_subdev, video, s_stream, 0);
+		if (!csi2_dev->variant->source_stream_last)
+			v4l2_subdev_call(source_subdev, video, s_stream, 0);
+
 		ret = 0;
 		goto disable;
 	}
@@ -260,8 +267,11 @@ static int sun6i_mipi_csi2_s_stream(struct v4l2_subdev *subdev, int on)
 
 	/* Controller */
 
-	sun6i_mipi_csi2_configure(csi2_dev);
-	sun6i_mipi_csi2_enable(csi2_dev);
+	ret = csi2_dev->variant->configure(csi2_dev);
+	if (ret)
+		goto error_pm;
+
+	csi2_dev->variant->enable(csi2_dev);
 
 	/* D-PHY */
 
@@ -281,7 +291,10 @@ static int sun6i_mipi_csi2_s_stream(struct v4l2_subdev *subdev, int on)
 
 disable:
 	phy_power_off(dphy);
-	sun6i_mipi_csi2_disable(csi2_dev);
+	csi2_dev->variant->disable(csi2_dev);
+
+	if (!on && csi2_dev->variant->source_stream_last)
+		v4l2_subdev_call(source_subdev, video, s_stream, 0);
 
 error_pm:
 	pm_runtime_put(dev);
@@ -588,8 +601,11 @@ static int sun6i_mipi_csi2_suspend(struct device *dev)
 {
 	struct sun6i_mipi_csi2_device *csi2_dev = dev_get_drvdata(dev);
 
-	clk_disable_unprepare(csi2_dev->clock_mod);
-	reset_control_assert(csi2_dev->reset);
+	if (csi2_dev->variant->has_mod_clock)
+		clk_disable_unprepare(csi2_dev->clock_mod);
+
+	if (csi2_dev->variant->has_reset)
+		reset_control_assert(csi2_dev->reset);
 
 	return 0;
 }
@@ -599,22 +615,27 @@ static int sun6i_mipi_csi2_resume(struct device *dev)
 	struct sun6i_mipi_csi2_device *csi2_dev = dev_get_drvdata(dev);
 	int ret;
 
-	ret = reset_control_deassert(csi2_dev->reset);
-	if (ret) {
-		dev_err(dev, "failed to deassert reset\n");
-		return ret;
+	if (csi2_dev->variant->has_reset) {
+		ret = reset_control_deassert(csi2_dev->reset);
+		if (ret) {
+			dev_err(dev, "failed to deassert reset\n");
+			return ret;
+		}
 	}
 
-	ret = clk_prepare_enable(csi2_dev->clock_mod);
-	if (ret) {
-		dev_err(dev, "failed to enable module clock\n");
-		goto error_reset;
+	if (csi2_dev->variant->has_mod_clock) {
+		ret = clk_prepare_enable(csi2_dev->clock_mod);
+		if (ret) {
+			dev_err(dev, "failed to enable module clock\n");
+			goto error_reset;
+		}
 	}
 
 	return 0;
 
 error_reset:
-	reset_control_assert(csi2_dev->reset);
+	if (csi2_dev->variant->has_reset)
+		reset_control_assert(csi2_dev->reset);
 
 	return ret;
 }
@@ -645,9 +666,14 @@ sun6i_mipi_csi2_resources_setup(struct sun6i_mipi_csi2_device *csi2_dev,
 	if (IS_ERR(io_base))
 		return PTR_ERR(io_base);
 
-	csi2_dev->regmap =
-		devm_regmap_init_mmio_clk(dev, "bus", io_base,
-					  &sun6i_mipi_csi2_regmap_config);
+	if (csi2_dev->variant->has_bus_clock)
+		csi2_dev->regmap =
+			devm_regmap_init_mmio_clk(dev, "bus", io_base,
+						  &sun6i_mipi_csi2_regmap_config);
+	else
+		csi2_dev->regmap =
+			devm_regmap_init_mmio(dev, io_base,
+					     &sun6i_mipi_csi2_regmap_config);
 	if (IS_ERR(csi2_dev->regmap)) {
 		dev_err(dev, "failed to init register map\n");
 		return PTR_ERR(csi2_dev->regmap);
@@ -655,25 +681,32 @@ sun6i_mipi_csi2_resources_setup(struct sun6i_mipi_csi2_device *csi2_dev,
 
 	/* Clock */
 
-	csi2_dev->clock_mod = devm_clk_get(dev, "mod");
-	if (IS_ERR(csi2_dev->clock_mod)) {
-		dev_err(dev, "failed to acquire mod clock\n");
-		return PTR_ERR(csi2_dev->clock_mod);
+	if (csi2_dev->variant->has_mod_clock) {
+		csi2_dev->clock_mod = devm_clk_get(dev, "mod");
+		if (IS_ERR(csi2_dev->clock_mod)) {
+			dev_err(dev, "failed to acquire mod clock\n");
+			return PTR_ERR(csi2_dev->clock_mod);
+		}
 	}
 
-	ret = clk_set_rate_exclusive(csi2_dev->clock_mod, 297000000);
-	if (ret) {
-		dev_err(dev, "failed to set mod clock rate\n");
-		return ret;
+	if (csi2_dev->variant->mod_rate) {
+		ret = clk_set_rate_exclusive(csi2_dev->clock_mod,
+					     csi2_dev->variant->mod_rate);
+		if (ret) {
+			dev_err(dev, "failed to set mod clock rate\n");
+			return ret;
+		}
 	}
 
 	/* Reset */
 
-	csi2_dev->reset = devm_reset_control_get_shared(dev, NULL);
-	if (IS_ERR(csi2_dev->reset)) {
-		dev_err(dev, "failed to get reset controller\n");
-		ret = PTR_ERR(csi2_dev->reset);
-		goto error_clock_rate_exclusive;
+	if (csi2_dev->variant->has_reset) {
+		csi2_dev->reset = devm_reset_control_get_shared(dev, NULL);
+		if (IS_ERR(csi2_dev->reset)) {
+			dev_err(dev, "failed to get reset controller\n");
+			ret = PTR_ERR(csi2_dev->reset);
+			goto error_clock_rate_exclusive;
+		}
 	}
 
 	/* D-PHY */
@@ -698,7 +731,8 @@ sun6i_mipi_csi2_resources_setup(struct sun6i_mipi_csi2_device *csi2_dev,
 	return 0;
 
 error_clock_rate_exclusive:
-	clk_rate_exclusive_put(csi2_dev->clock_mod);
+	if (csi2_dev->variant->mod_rate)
+		clk_rate_exclusive_put(csi2_dev->clock_mod);
 
 	return ret;
 }
@@ -708,7 +742,9 @@ sun6i_mipi_csi2_resources_cleanup(struct sun6i_mipi_csi2_device *csi2_dev)
 {
 	pm_runtime_disable(csi2_dev->dev);
 	phy_exit(csi2_dev->dphy);
-	clk_rate_exclusive_put(csi2_dev->clock_mod);
+
+	if (csi2_dev->variant->mod_rate)
+		clk_rate_exclusive_put(csi2_dev->clock_mod);
 }
 
 static int sun6i_mipi_csi2_probe(struct platform_device *platform_dev)
@@ -722,6 +758,10 @@ static int sun6i_mipi_csi2_probe(struct platform_device *platform_dev)
 		return -ENOMEM;
 
 	csi2_dev->dev = dev;
+	csi2_dev->variant = device_get_match_data(dev);
+	if (!csi2_dev->variant)
+		return -EINVAL;
+
 	platform_set_drvdata(platform_dev, csi2_dev);
 
 	ret = sun6i_mipi_csi2_resources_setup(csi2_dev, platform_dev);
@@ -749,8 +789,172 @@ static void sun6i_mipi_csi2_remove(struct platform_device *platform_dev)
 	sun6i_mipi_csi2_resources_cleanup(csi2_dev);
 }
 
+static const u8 sun55i_a523_mipi_csi2_lane_map[][4] = {
+	{ 0, 1, 4, 5 },
+	{ 4, 5, 0, 0 },
+	{ 8, 9, 12, 13 },
+	{ 12, 13, 0, 0 },
+};
+
+static int
+sun55i_a523_mipi_csi2_port_id(struct sun6i_mipi_csi2_device *csi2_dev)
+{
+	struct resource resource;
+	resource_size_t offset;
+	int ret;
+
+	ret = of_address_to_resource(csi2_dev->dev->of_node, 0, &resource);
+	if (ret)
+		return ret;
+
+	if (resource.start < SUN55I_A523_MIPI_CSI2_PORT_BASE)
+		return -EINVAL;
+
+	offset = resource.start - SUN55I_A523_MIPI_CSI2_PORT_BASE;
+	if (offset % SUN55I_A523_MIPI_CSI2_PORT_STRIDE)
+		return -EINVAL;
+
+	offset /= SUN55I_A523_MIPI_CSI2_PORT_STRIDE;
+	if (offset >= SUN55I_A523_MIPI_CSI2_PORT_COUNT)
+		return -EINVAL;
+
+	return offset;
+}
+
+static void
+sun55i_a523_mipi_csi2_enable(struct sun6i_mipi_csi2_device *csi2_dev)
+{
+	regmap_update_bits(csi2_dev->regmap,
+			   SUN55I_A523_MIPI_CSI2_PORT_CTL_REG,
+			   SUN55I_A523_MIPI_CSI2_PORT_CTL_EN,
+			   SUN55I_A523_MIPI_CSI2_PORT_CTL_EN);
+}
+
+static void
+sun55i_a523_mipi_csi2_disable(struct sun6i_mipi_csi2_device *csi2_dev)
+{
+	regmap_update_bits(csi2_dev->regmap,
+			   SUN55I_A523_MIPI_CSI2_PORT_CTL_REG,
+			   SUN55I_A523_MIPI_CSI2_PORT_CTL_EN, 0);
+}
+
+static int
+sun55i_a523_mipi_csi2_configure(struct sun6i_mipi_csi2_device *csi2_dev)
+{
+	struct v4l2_mbus_framefmt *mbus_format =
+		&csi2_dev->bridge.mbus_format;
+	unsigned int lanes_count =
+		csi2_dev->bridge.endpoint.bus.mipi_csi2.num_data_lanes;
+	const struct sun6i_mipi_csi2_format *format;
+	const u8 *lane_map;
+	u32 lane_map_value = 0;
+	unsigned int lane;
+	int port_id;
+
+	format = sun6i_mipi_csi2_format_find(mbus_format->code);
+	if (WARN_ON(!format))
+		return -EINVAL;
+
+	port_id = sun55i_a523_mipi_csi2_port_id(csi2_dev);
+	if (port_id < 0) {
+		dev_err(csi2_dev->dev,
+			"invalid A523 MIPI CSI-2 port address\n");
+		return port_id;
+	}
+
+	if (!lanes_count ||
+	    lanes_count > ARRAY_SIZE(sun55i_a523_mipi_csi2_lane_map[0]) ||
+	    ((port_id == 1 || port_id == 3) && lanes_count > 2)) {
+		dev_err(csi2_dev->dev,
+			"invalid lane count %u for A523 MIPI CSI-2 port %d\n",
+			lanes_count, port_id);
+		return -EINVAL;
+	}
+
+	lane_map = sun55i_a523_mipi_csi2_lane_map[port_id];
+
+	for (lane = 0; lane < lanes_count; lane++)
+		lane_map_value |= lane_map[lane] << (lane * 4);
+
+	regmap_write(csi2_dev->regmap,
+		     SUN55I_A523_MIPI_CSI2_LANE_MAP0_REG,
+		     lane_map_value);
+
+	/*
+	 * SUN55IW3 writes the actual lane count into LANE_NUM.
+	 * One virtual channel is encoded as CHANNEL_NUM = 0.
+	 * OUT_NUM = 1 corresponds to the vendor TWO_DATA setting.
+	 */
+	regmap_update_bits(csi2_dev->regmap,
+			   SUN55I_A523_MIPI_CSI2_PORT_CTL_REG,
+			   SUN55I_A523_MIPI_CSI2_PORT_CTL_LANE_NUM |
+			   SUN55I_A523_MIPI_CSI2_PORT_CTL_CHANNEL_NUM |
+			   SUN55I_A523_MIPI_CSI2_PORT_CTL_OUT_NUM,
+			   FIELD_PREP(
+				SUN55I_A523_MIPI_CSI2_PORT_CTL_LANE_NUM,
+				lanes_count) |
+			   SUN55I_A523_MIPI_CSI2_PORT_CTL_OUT_NUM);
+
+	/*
+	 * Match cmb_port_mipi_cfg(): unpack enabled, packet-header
+	 * bit order zero. YUV sequence is zero; it is irrelevant to RAW.
+	 */
+	regmap_update_bits(csi2_dev->regmap,
+			   SUN55I_A523_MIPI_CSI2_MIPI_CFG_REG,
+			   SUN55I_A523_MIPI_CSI2_MIPI_CFG_UNPACK_EN |
+			   SUN55I_A523_MIPI_CSI2_MIPI_CFG_PH_BITORD |
+			   SUN55I_A523_MIPI_CSI2_MIPI_CFG_YUV_SEQ,
+			   SUN55I_A523_MIPI_CSI2_MIPI_CFG_UNPACK_EN);
+
+	/* VC0 and the CSI-2 datatype associated with the mbus format. */
+	regmap_write(csi2_dev->regmap,
+		     SUN55I_A523_MIPI_CSI2_MIPI_DI_REG,
+		     FIELD_PREP(SUN55I_A523_MIPI_CSI2_MIPI_DI_CH0_DT,
+				format->data_type));
+
+	/*
+	 * Match cmb_port_mipi_ch_trigger_en(..., 0, 1).
+	 * SRC_IS_FIELD remains clear for progressive capture.
+	 */
+	regmap_write(csi2_dev->regmap,
+		     SUN55I_A523_MIPI_CSI2_MIPI_DI_TRIG_REG,
+		     SUN55I_A523_MIPI_CSI2_MIPI_TRIG_FS |
+		     SUN55I_A523_MIPI_CSI2_MIPI_TRIG_FE |
+		     SUN55I_A523_MIPI_CSI2_MIPI_TRIG_LS |
+		     SUN55I_A523_MIPI_CSI2_MIPI_TRIG_LE |
+		     SUN55I_A523_MIPI_CSI2_MIPI_TRIG_YUV |
+		     SUN55I_A523_MIPI_CSI2_MIPI_TRIG_RGB |
+		     SUN55I_A523_MIPI_CSI2_MIPI_TRIG_RAW);
+
+	return 0;
+}
+
+static const struct sun6i_mipi_csi2_variant sun6i_a31_mipi_csi2_variant = {
+	.configure      = sun6i_a31_mipi_csi2_configure,
+	.enable         = sun6i_a31_mipi_csi2_enable,
+	.disable        = sun6i_a31_mipi_csi2_disable,
+	.mod_rate       = 297000000,
+	.has_bus_clock  = true,
+	.has_mod_clock  = true,
+	.has_reset      = true,
+};
+
+static const struct sun6i_mipi_csi2_variant sun55i_a523_mipi_csi2_variant = {
+	.configure		= sun55i_a523_mipi_csi2_configure,
+	.enable			= sun55i_a523_mipi_csi2_enable,
+	.disable		= sun55i_a523_mipi_csi2_disable,
+	.source_stream_last	= true,
+};
+
 static const struct of_device_id sun6i_mipi_csi2_of_match[] = {
-	{ .compatible	= "allwinner,sun6i-a31-mipi-csi2" },
+	{
+		.compatible     = "allwinner,sun6i-a31-mipi-csi2",
+		.data           = &sun6i_a31_mipi_csi2_variant,
+	},
+	{
+		.compatible     = "allwinner,sun55i-a523-mipi-csi2",
+		.data           = &sun55i_a523_mipi_csi2_variant,
+	},
 	{},
 };
 MODULE_DEVICE_TABLE(of, sun6i_mipi_csi2_of_match);
@@ -766,6 +970,6 @@ static struct platform_driver sun6i_mipi_csi2_platform_driver = {
 };
 module_platform_driver(sun6i_mipi_csi2_platform_driver);
 
-MODULE_DESCRIPTION("Allwinner A31 MIPI CSI-2 Controller Driver");
+MODULE_DESCRIPTION("Allwinner MIPI CSI-2 Controller Driver");
 MODULE_AUTHOR("Paul Kocialkowski <paul.kocialkowski@bootlin.com>");
 MODULE_LICENSE("GPL");

@@ -73,6 +73,8 @@ struct sun6i_csi_capture_format *sun6i_csi_capture_format_find(u32 pixelformat);
 
 /* Capture */
 
+void sun6i_csi_capture_buffer_configure(struct sun6i_csi_device *csi_dev,
+					  struct sun6i_csi_buffer *csi_buffer);
 void sun6i_csi_capture_configure(struct sun6i_csi_device *csi_dev);
 void sun6i_csi_capture_state_update(struct sun6i_csi_device *csi_dev);
 

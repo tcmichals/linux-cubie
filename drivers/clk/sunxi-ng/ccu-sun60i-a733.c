@@ -113,6 +113,10 @@ static SUNXI_CCU_GATE_HWS(bus_msgbox0_clk, "bus-msgbox0", ahb_hws,  0x0744, BIT(
 static SUNXI_CCU_GATE_HWS(bus_gmac0_clk, "bus-gmac0", ahb_hws,  0x141c, BIT(0), 0);
 static SUNXI_CCU_GATE_HWS(bus_gmac1_clk, "bus-gmac1", ahb_hws,  0x142c, BIT(0), 0);
 
+static SUNXI_CCU_GATE_HWS(mbus_csi_clk, "mbus-csi", ahb_hws, 0x05e4, BIT(8), 0);
+static SUNXI_CCU_GATE_HWS(csi_top_clk, "csi-top", ahb_hws, 0x1840, BIT(31), 0);
+static SUNXI_CCU_GATE_HWS(bus_csi_clk, "bus-csi", ahb_hws, 0x1844, BIT(0), 0);
+
 static SUNXI_CCU_GATE_HWS(bus_usb0_clk, "bus-usb0", ahb_hws, 0x1304, BIT(4) | BIT(0), 0);
 static SUNXI_CCU_GATE_HWS(usb_ohci0_clk, "usb-ohci0", ahb_hws, 0x1304, BIT(4), 0);
 static SUNXI_CCU_GATE_HWS(bus_usb1_clk, "bus-usb1", ahb_hws, 0x130c, BIT(4) | BIT(0), 0);
@@ -257,9 +261,12 @@ static struct ccu_common *sun60i_a733_ccu_clks[] = {
 	&mmc2_clk.common,
 	&spi0_clk.common,
 	&spi1_clk.common,
+	&mbus_csi_clk.common,
+	&csi_top_clk.common,
+	&bus_csi_clk.common,
 };
 
-#define CLK_NUMBER (CLK_USB2_MF + 1)
+#define CLK_NUMBER (CLK_BUS_CSI + 1)
 static struct {
 	unsigned int num;
 	struct clk_hw *hws[CLK_NUMBER];
@@ -314,6 +321,9 @@ static struct {
 		[CLK_BUS_MSI_LITE2]	= &bus_msi_lite2_clk.common.hw,
 		[CLK_RES_DCAP_24M]	= &res_dcap_24m_clk.common.hw,
 		[CLK_GMAC_PTP]		= &gmac_ptp_clk.common.hw,
+		[CLK_MBUS_CSI]		= &mbus_csi_clk.common.hw,
+		[CLK_CSI_TOP]		= &csi_top_clk.common.hw,
+		[CLK_BUS_CSI]		= &bus_csi_clk.common.hw,
 	},
 };
 
@@ -349,6 +359,7 @@ static const struct ccu_reset_map sun60i_a733_ccu_resets[] = {
 	[RST_BUS_USB2]	= { 0x135c, BIT(16) },
 	[RST_USB_PHY0]	= { 0x1300, BIT(30) },
 	[RST_USB_PHY1]	= { 0x1308, BIT(30) },
+	[RST_BUS_CSI]	= { 0x1844, BIT(16) },
 };
 
 static const struct sunxi_ccu_desc sun60i_a733_ccu_desc = {
@@ -399,6 +410,10 @@ static int sun60i_a733_ccu_probe(struct platform_device *pdev)
 	writel(readl(reg + 0x13c0) | BIT(31), reg + 0x13c0);
 	writel(readl(reg + 0x13c4) | BIT(16), reg + 0x13c4);
 	writel(readl(reg + 0x05a4) | BIT(17) | BIT(16) | BIT(0), reg + 0x05a4);
+
+	/* Ensure CSI top and bus clocks are unmasked */
+	writel(readl(reg + 0x1840) | BIT(31), reg + 0x1840);
+	writel(readl(reg + 0x1844) | BIT(16) | BIT(0), reg + 0x1844);
 
 	return devm_sunxi_ccu_probe(&pdev->dev, reg, &sun60i_a733_ccu_desc);
 }

@@ -61,6 +61,16 @@ void sun6i_csi_bridge_format(struct sun6i_csi_device *csi_dev,
 const struct sun6i_csi_bridge_format *
 sun6i_csi_bridge_format_find(u32 mbus_code);
 
+/* Hardware */
+
+void sun6i_csi_bridge_irq_enable(struct sun6i_csi_device *csi_dev);
+void sun6i_csi_bridge_irq_disable(struct sun6i_csi_device *csi_dev);
+void sun6i_csi_bridge_irq_clear(struct sun6i_csi_device *csi_dev);
+void sun6i_csi_bridge_enable(struct sun6i_csi_device *csi_dev);
+void sun6i_csi_bridge_disable(struct sun6i_csi_device *csi_dev);
+void sun6i_csi_bridge_configure(struct sun6i_csi_device *csi_dev,
+				struct sun6i_csi_bridge_source *source);
+
 /* Bridge */
 
 int sun6i_csi_bridge_setup(struct sun6i_csi_device *csi_dev);

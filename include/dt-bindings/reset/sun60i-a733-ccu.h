@@ -48,5 +48,6 @@
 #define RST_USB_PHY1		43
 #define RST_BUS_GMAC0_AXI	44
 #define RST_BUS_GMAC1_AXI	45
+#define RST_BUS_CSI		46
 
 #endif
