@@ -107,9 +107,6 @@ static int sunxi_wdt_restart(struct watchdog_device *wdt_dev,
 	/* Wait for watchdog to trigger hardware reset (0.5s timeout) */
 	mdelay(1000);
 
-	while (1)
-		cpu_relax();
-
 	return 0;
 }
 
@@ -279,7 +276,7 @@ static int sunxi_wdt_probe(struct platform_device *pdev)
 
 	watchdog_init_timeout(&sunxi_wdt->wdt_dev, timeout, dev);
 	watchdog_set_nowayout(&sunxi_wdt->wdt_dev, nowayout);
-	watchdog_set_restart_priority(&sunxi_wdt->wdt_dev, 255);
+	watchdog_set_restart_priority(&sunxi_wdt->wdt_dev, 128);
 
 	watchdog_set_drvdata(&sunxi_wdt->wdt_dev, sunxi_wdt);
 

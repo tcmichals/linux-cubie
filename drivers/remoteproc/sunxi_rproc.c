@@ -576,7 +576,7 @@ static int sunxi_rproc_probe(struct platform_device *pdev)
 		return dev_err_probe(dev, PTR_ERR(priv->clk_sram), "failed to get 'sram' clock\n");
 
 	/* 2. Resets */
-	priv->rst_cfg = devm_reset_control_get_exclusive(dev, "cfg");
+	priv->rst_cfg = devm_reset_control_get_optional_exclusive(dev, "cfg");
 	if (IS_ERR(priv->rst_cfg))
 		return dev_err_probe(dev, PTR_ERR(priv->rst_cfg), "failed to get 'cfg' reset\n");
 

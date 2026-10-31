@@ -62,3 +62,7 @@ dtb-$(CONFIG_ARCH_SUNXI) += sun55i-t527-avaota-a1.dtb
 dtb-$(CONFIG_ARCH_SUNXI) += sun55i-t527-orangepi-4a.dtb
 dtb-$(CONFIG_ARCH_SUNXI) += sun60i-a733-cubie-a7a.dtb
 dtb-$(CONFIG_ARCH_SUNXI) += sun60i-a733-cubie-a7z.dtb
+
+DTC_FLAGS_sun60i-a733-cubie-a7a += -@
+DTC_FLAGS_sun60i-a733-cubie-a7z += -@
+
