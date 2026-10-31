@@ -24,6 +24,7 @@
 		serial0 = &uart0;
 		mmc0 = &mmc0;
 		ethernet0 = &gmac0;
+		i2c3 = &i2c3;
 	};
 
 	chosen {
@@ -300,6 +301,13 @@
 				function = "gmac0";
 				allwinner,pinmux = <5>;
 			};
+
+			i2c3_pins: i2c3-pins {
+				pins = "PE3", "PE4";
+				function = "twi3";
+				allwinner,pinmux = <2>;
+				bias-pull-up;
+			};
 		};
 
 		ccu: clock-controller@2002000 {
@@ -329,6 +337,19 @@
 			resets = <&ccu RST_BUS_UART0>;
 			pinctrl-names = "default";
 			pinctrl-0 = <&uart0_pins>;
+			status = "okay";
+		};
+
+		i2c3: i2c@2513000 {
+			compatible = "allwinner,sun6i-a31-i2c";
+			reg = <0x02513000 0x400>;
+			interrupts = <GIC_SPI 14 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&ccu CLK_BUS_I2C3>;
+			resets = <&ccu RST_BUS_I2C3>;
+			pinctrl-names = "default";
+			pinctrl-0 = <&i2c3_pins>;
+			#address-cells = <1>;
+			#size-cells = <0>;
 			status = "okay";
 		};
 
