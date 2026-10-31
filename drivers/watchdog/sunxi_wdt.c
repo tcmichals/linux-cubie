@@ -87,6 +87,12 @@ static int sunxi_wdt_restart(struct watchdog_device *wdt_dev,
 	const struct sunxi_wdt_reg *regs = sunxi_wdt->wdt_regs;
 	u32 val;
 
+	/* On A733/A523 (key 0x16aa), trigger immediate software reset via WDT_SRST_REG (0x08) */
+	if (regs->wdt_key_val == 0x16aa0000) {
+		writel(0x16aa0001, wdt_base + 0x08);
+		mdelay(500);
+	}
+
 	/* Set system reset function */
 	val = readl(wdt_base + regs->wdt_cfg);
 	val &= ~(regs->wdt_reset_mask);
