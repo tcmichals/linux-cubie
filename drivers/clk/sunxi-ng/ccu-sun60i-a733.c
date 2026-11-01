@@ -411,9 +411,6 @@ static int sun60i_a733_ccu_probe(struct platform_device *pdev)
 	writel(readl(reg + 0x13c4) | BIT(16), reg + 0x13c4);
 	writel(readl(reg + 0x05a4) | BIT(17) | BIT(16) | BIT(0), reg + 0x05a4);
 
-	/* Ensure CSI top and bus clocks are unmasked */
-	writel(readl(reg + 0x1840) | BIT(31), reg + 0x1840);
-	writel(readl(reg + 0x1844) | BIT(16) | BIT(0), reg + 0x1844);
 
 	return devm_sunxi_ccu_probe(&pdev->dev, reg, &sun60i_a733_ccu_desc);
 }
