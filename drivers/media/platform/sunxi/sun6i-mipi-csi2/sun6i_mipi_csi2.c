@@ -883,7 +883,8 @@ sun55i_a523_mipi_csi2_configure(struct sun6i_mipi_csi2_device *csi2_dev)
 	/*
 	 * SUN55IW3 writes the actual lane count into LANE_NUM.
 	 * One virtual channel is encoded as CHANNEL_NUM = 0.
-	 * OUT_NUM = 1 corresponds to the vendor TWO_DATA setting.
+	 * OUT_NUM = 1 corresponds to the vendor TWO_DATA setting for 3/4 lanes;
+	 * 1 and 2 lanes use ONE_DATA (OUT_NUM = 0).
 	 */
 	regmap_update_bits(csi2_dev->regmap,
 			   SUN55I_A523_MIPI_CSI2_PORT_CTL_REG,
@@ -893,7 +894,7 @@ sun55i_a523_mipi_csi2_configure(struct sun6i_mipi_csi2_device *csi2_dev)
 			   FIELD_PREP(
 				SUN55I_A523_MIPI_CSI2_PORT_CTL_LANE_NUM,
 				lanes_count) |
-			   SUN55I_A523_MIPI_CSI2_PORT_CTL_OUT_NUM);
+			   (lanes_count > 2 ? SUN55I_A523_MIPI_CSI2_PORT_CTL_OUT_NUM : 0));
 
 	/*
 	 * Match cmb_port_mipi_cfg(): unpack enabled, packet-header

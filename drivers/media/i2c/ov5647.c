@@ -813,6 +813,7 @@ static int ov5647_set_pad_fmt(struct v4l2_subdev *sd,
 		__v4l2_ctrl_modify_range(sensor->hblank, hblank,
 					 OV5647_HTS_MAX - mode->format.width, 1,
 					 hblank);
+		__v4l2_ctrl_s_ctrl(sensor->hblank, hblank);
 
 		vblank = mode->vts - mode->format.height;
 		__v4l2_ctrl_modify_range(sensor->vblank, OV5647_VBLANK_MIN,

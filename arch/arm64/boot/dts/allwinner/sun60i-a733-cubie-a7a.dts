@@ -619,6 +619,7 @@
 			      <0x05810000 0x100>;
 			reg-names = "phy", "combo-top";
 			#phy-cells = <0>;
+			power-domains = <&pck600 PD_VI>;
 			pinctrl-names = "default";
 			pinctrl-0 = <&mipi1_pins>;
 			status = "okay";
@@ -630,6 +631,7 @@
 
 			phys = <&dphy1>;
 			phy-names = "dphy";
+			power-domains = <&pck600 PD_VI>;
 
 			status = "okay";
 
@@ -660,6 +662,7 @@
 			reg-names = "top", "parser", "dma", "ccu";
 
 			interrupts = <GIC_SPI 117 IRQ_TYPE_LEVEL_HIGH>;
+			power-domains = <&pck600 PD_VI>;
 
 			clocks = <&ccu CLK_BUS_CSI>,
 				 <&ccu CLK_CSI_TOP>,

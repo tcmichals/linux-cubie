@@ -20,14 +20,24 @@
 #define SUN55I_A523_CSI_CCU_CLK_GATING_DISABLE	BIT(31)
 
 #define SUN55I_A523_CSI_CCU_PARSER_CLK_EN		0x004
+#define SUN55I_A523_CSI_CCU_MCSI_PARSER0_CLK_EN	BIT(0)
+#define SUN55I_A523_CSI_CCU_MCSI_PARSER1_CLK_EN	BIT(1)
 #define SUN55I_A523_CSI_CCU_MCSI_COMBO0_CLK_EN	BIT(8)
 #define SUN55I_A523_CSI_CCU_MCSI_COMBO1_CLK_EN	BIT(9)
+#define SUN55I_A523_CSI_CCU_MCSI_MIPI0_CLK_EN	BIT(16)
+#define SUN55I_A523_CSI_CCU_MCSI_MIPI1_CLK_EN	BIT(17)
 
 #define SUN55I_A523_CSI_CCU_ISP_CLK_EN		0x008
+#define SUN55I_A523_CSI_CCU_MISP0_CLK_EN	BIT(0)
+#define SUN55I_A523_CSI_CCU_MISP0_BRIDGE_CLK_EN	BIT(4)
+#define SUN55I_A523_CSI_CCU_MISP0_F2S0_BRIDGE_CH_CLK_EN BIT(12)
+#define SUN55I_A523_CSI_CCU_MISP0_S2F0_BRIDGE_CH_CLK_EN BIT(16)
 #define SUN55I_A523_CSI_CCU_MISP_BRIDGE_GATING_DISABLE	BIT(20)
 
-#define SUN55I_A523_CSI_CCU_POST0_CLK_EN		0x00c
-#define SUN55I_A523_CSI_CCU_POST1_CLK_EN		0x010
+#define SUN55I_A523_CSI_CCU_POST0_CLK_EN	0x00c
+#define SUN55I_A523_CSI_CCU_POST1_CLK_EN	0x010
+#define SUN55I_A523_CSI_CCU_MCSI_BK0_CLK_EN	BIT(0)
+#define SUN55I_A523_CSI_CCU_MCSI_VIPP0_CLK_EN	BIT(8)
 #define SUN55I_A523_CSI_CCU_MCSI_POST_CLK_EN	BIT(16)
 
 #define SUN55I_A523_CSI_DMA_CH0_INT_EN		0x250
@@ -220,24 +230,35 @@ sun55i_a523_csi_runtime_resume(struct sun6i_csi_device *csi_dev)
 	readl(a523->ccu_base + SUN55I_A523_CSI_CCU_MODE);
 
 	value = readl(a523->ccu_base + SUN55I_A523_CSI_CCU_ISP_CLK_EN);
+	value |= SUN55I_A523_CSI_CCU_MISP0_CLK_EN |
+		 SUN55I_A523_CSI_CCU_MISP0_BRIDGE_CLK_EN |
+		 SUN55I_A523_CSI_CCU_MISP0_F2S0_BRIDGE_CH_CLK_EN |
+		 SUN55I_A523_CSI_CCU_MISP0_S2F0_BRIDGE_CH_CLK_EN;
 	value &= ~SUN55I_A523_CSI_CCU_MISP_BRIDGE_GATING_DISABLE;
 	writel(value, a523->ccu_base + SUN55I_A523_CSI_CCU_ISP_CLK_EN);
 
 	value = readl(a523->ccu_base + SUN55I_A523_CSI_CCU_POST0_CLK_EN);
-	value |= SUN55I_A523_CSI_CCU_MCSI_POST_CLK_EN;
+	value |= SUN55I_A523_CSI_CCU_MCSI_BK0_CLK_EN |
+		 SUN55I_A523_CSI_CCU_MCSI_VIPP0_CLK_EN |
+		 SUN55I_A523_CSI_CCU_MCSI_POST_CLK_EN;
 	writel(value, a523->ccu_base + SUN55I_A523_CSI_CCU_POST0_CLK_EN);
 
 	value = readl(a523->ccu_base + SUN55I_A523_CSI_CCU_POST1_CLK_EN);
-	value |= SUN55I_A523_CSI_CCU_MCSI_POST_CLK_EN;
+	value |= SUN55I_A523_CSI_CCU_MCSI_BK0_CLK_EN |
+		 SUN55I_A523_CSI_CCU_MCSI_VIPP0_CLK_EN |
+		 SUN55I_A523_CSI_CCU_MCSI_POST_CLK_EN;
 	writel(value, a523->ccu_base + SUN55I_A523_CSI_CCU_POST1_CLK_EN);
 
 	/*
-	 * SUN55IW3 VIN enables COMBO0 globally. MIPI2 additionally maps to
-	 * combo selector 2 / 2 == 1, therefore enable COMBO1 as well.
+	 * Enable clocks for parsers, combo modules, and MIPI receivers.
 	 */
 	value = readl(a523->ccu_base + SUN55I_A523_CSI_CCU_PARSER_CLK_EN);
-	value |= SUN55I_A523_CSI_CCU_MCSI_COMBO0_CLK_EN |
-		 SUN55I_A523_CSI_CCU_MCSI_COMBO1_CLK_EN;
+	value |= SUN55I_A523_CSI_CCU_MCSI_PARSER0_CLK_EN |
+		 SUN55I_A523_CSI_CCU_MCSI_PARSER1_CLK_EN |
+		 SUN55I_A523_CSI_CCU_MCSI_COMBO0_CLK_EN |
+		 SUN55I_A523_CSI_CCU_MCSI_COMBO1_CLK_EN |
+		 SUN55I_A523_CSI_CCU_MCSI_MIPI0_CLK_EN |
+		 SUN55I_A523_CSI_CCU_MCSI_MIPI1_CLK_EN;
 	writel(value, a523->ccu_base + SUN55I_A523_CSI_CCU_PARSER_CLK_EN);
 	readl(a523->ccu_base + SUN55I_A523_CSI_CCU_PARSER_CLK_EN);
 
@@ -262,17 +283,32 @@ sun55i_a523_csi_runtime_suspend(struct sun6i_csi_device *csi_dev)
 	u32 value;
 
 	value = readl(a523->ccu_base + SUN55I_A523_CSI_CCU_PARSER_CLK_EN);
-	value &= ~(SUN55I_A523_CSI_CCU_MCSI_COMBO0_CLK_EN |
-		   SUN55I_A523_CSI_CCU_MCSI_COMBO1_CLK_EN);
+	value &= ~(SUN55I_A523_CSI_CCU_MCSI_PARSER0_CLK_EN |
+		   SUN55I_A523_CSI_CCU_MCSI_PARSER1_CLK_EN |
+		   SUN55I_A523_CSI_CCU_MCSI_COMBO0_CLK_EN |
+		   SUN55I_A523_CSI_CCU_MCSI_COMBO1_CLK_EN |
+		   SUN55I_A523_CSI_CCU_MCSI_MIPI0_CLK_EN |
+		   SUN55I_A523_CSI_CCU_MCSI_MIPI1_CLK_EN);
 	writel(value, a523->ccu_base + SUN55I_A523_CSI_CCU_PARSER_CLK_EN);
 
 	value = readl(a523->ccu_base + SUN55I_A523_CSI_CCU_POST1_CLK_EN);
-	value &= ~SUN55I_A523_CSI_CCU_MCSI_POST_CLK_EN;
+	value &= ~(SUN55I_A523_CSI_CCU_MCSI_BK0_CLK_EN |
+		   SUN55I_A523_CSI_CCU_MCSI_VIPP0_CLK_EN |
+		   SUN55I_A523_CSI_CCU_MCSI_POST_CLK_EN);
 	writel(value, a523->ccu_base + SUN55I_A523_CSI_CCU_POST1_CLK_EN);
 
 	value = readl(a523->ccu_base + SUN55I_A523_CSI_CCU_POST0_CLK_EN);
-	value &= ~SUN55I_A523_CSI_CCU_MCSI_POST_CLK_EN;
+	value &= ~(SUN55I_A523_CSI_CCU_MCSI_BK0_CLK_EN |
+		   SUN55I_A523_CSI_CCU_MCSI_VIPP0_CLK_EN |
+		   SUN55I_A523_CSI_CCU_MCSI_POST_CLK_EN);
 	writel(value, a523->ccu_base + SUN55I_A523_CSI_CCU_POST0_CLK_EN);
+
+	value = readl(a523->ccu_base + SUN55I_A523_CSI_CCU_ISP_CLK_EN);
+	value &= ~(SUN55I_A523_CSI_CCU_MISP0_CLK_EN |
+		   SUN55I_A523_CSI_CCU_MISP0_BRIDGE_CLK_EN |
+		   SUN55I_A523_CSI_CCU_MISP0_F2S0_BRIDGE_CH_CLK_EN |
+		   SUN55I_A523_CSI_CCU_MISP0_S2F0_BRIDGE_CH_CLK_EN);
+	writel(value, a523->ccu_base + SUN55I_A523_CSI_CCU_ISP_CLK_EN);
 
 	value = readl(a523->ccu_base + SUN55I_A523_CSI_CCU_MODE);
 	value &= ~(SUN55I_A523_CSI_CCU_MCSI_CLK_MODE |
@@ -353,8 +389,14 @@ sun55i_a523_csi_buffer_configure(struct sun6i_csi_device *csi_dev,
 	       a523->dma_base + SUN55I_A523_CSI_DMA_CH0_F0_BUFA);
 }
 
+#define SUN55I_A523_CSI_TOP_EN_REG		0x000
+#define SUN55I_A523_CSI_TOP_EN			BIT(0)
+#define SUN55I_A523_CSI_TOP_ISP_BRIDGE_EN	BIT(3)
+#define SUN55I_A523_CSI_TOP_ISP_F2S0_BRIDGE_EN	BIT(12)
+#define SUN55I_A523_CSI_TOP_ISP_S0F2_BRIDGE_EN	BIT(16)
 #define SUN55I_A523_CSI_TOP_ISP0_IN0		0x030
 #define SUN55I_A523_CSI_TOP_VIPP0_IN		0x0a0
+#define SUN55I_A523_CSI_TOP_MBUS_REQ_MAX	0x0f0
 
 #define SUN55I_A523_CSI_PRS_EN			0x000
 #define SUN55I_A523_CSI_PRS_MCSI_IF_CFG	0x008
@@ -362,7 +404,10 @@ sun55i_a523_csi_buffer_configure(struct sun6i_csi_device *csi_dev,
 #define SUN55I_A523_CSI_PRS_CH0_HSIZE		0x028
 #define SUN55I_A523_CSI_PRS_CH0_VSIZE		0x02c
 
+#define SUN55I_A523_CSI_TOP_PARSER0_CH0	0
+#define SUN55I_A523_CSI_TOP_PARSER1_CH0	4
 #define SUN55I_A523_CSI_TOP_PARSER2_CH0	8
+#define SUN55I_A523_CSI_TOP_PARSER3_CH0	12
 
 #define SUN55I_A523_CSI_DMA_TOP_EN		0x000
 #define SUN55I_A523_CSI_DMA_CH0_EN		0x200
@@ -400,8 +445,8 @@ sun55i_a523_csi_bridge_configure(struct sun6i_csi_device *csi_dev,
 		return;
 	}
 
-	/* CSI2 parser channel 0 -> ISP0 input 0 -> VIPP0. */
-	writel(SUN55I_A523_CSI_TOP_PARSER2_CH0,
+	/* CSI2 parser 1 channel 0 -> ISP0 input 0 -> VIPP0. */
+	writel(SUN55I_A523_CSI_TOP_PARSER1_CH0,
 	       a523->top_base + SUN55I_A523_CSI_TOP_ISP0_IN0);
 	writel(0, a523->top_base + SUN55I_A523_CSI_TOP_VIPP0_IN);
 
@@ -419,6 +464,12 @@ static void sun55i_a523_csi_bridge_enable(struct sun6i_csi_device *csi_dev)
 	struct sun55i_a523_csi *a523 = csi_dev->priv;
 	u32 value;
 
+	/* Enable CSI TOP module, ISP bridge, bridge channels 0, and max MBUS requests */
+	writel(SUN55I_A523_CSI_TOP_EN | SUN55I_A523_CSI_TOP_ISP_BRIDGE_EN |
+	       SUN55I_A523_CSI_TOP_ISP_F2S0_BRIDGE_EN | SUN55I_A523_CSI_TOP_ISP_S0F2_BRIDGE_EN,
+	       a523->top_base + SUN55I_A523_CSI_TOP_EN_REG);
+	writel(0x000f0f0f, a523->top_base + SUN55I_A523_CSI_TOP_MBUS_REQ_MAX);
+
 	value = readl(a523->dma_base + SUN55I_A523_CSI_DMA_TOP_EN);
 	value |= SUN55I_A523_CSI_DMA_EN;
 	writel(value, a523->dma_base + SUN55I_A523_CSI_DMA_TOP_EN);
@@ -427,6 +478,10 @@ static void sun55i_a523_csi_bridge_enable(struct sun6i_csi_device *csi_dev)
 	value |= SUN55I_A523_CSI_DMA_EN;
 	writel(value, a523->dma_base + SUN55I_A523_CSI_DMA_CH0_EN);
 
+	/* Tina/vendor parser reset toggle sequence */
+	writel(BIT(15) | BIT(0), a523->parser_base + SUN55I_A523_CSI_PRS_EN);
+	writel(BIT(15), a523->parser_base + SUN55I_A523_CSI_PRS_EN);
+	writel(BIT(15) | BIT(0), a523->parser_base + SUN55I_A523_CSI_PRS_EN);
 	writel(SUN55I_A523_CSI_PRS_EN_MCSI,
 	       a523->parser_base + SUN55I_A523_CSI_PRS_EN);
 	writel(SUN55I_A523_CSI_PRS_CAP_CH0_VCAP,
@@ -448,6 +503,8 @@ static void sun55i_a523_csi_bridge_disable(struct sun6i_csi_device *csi_dev)
 
 	writel(0, a523->parser_base + SUN55I_A523_CSI_PRS_CAP);
 	writel(0, a523->parser_base + SUN55I_A523_CSI_PRS_EN);
+
+	writel(0, a523->top_base + SUN55I_A523_CSI_TOP_EN_REG);
 }
 
 static const struct sun6i_csi_hw_ops sun55i_a523_csi_hw_ops = {

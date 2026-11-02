@@ -411,6 +411,12 @@ static int sun60i_a733_ccu_probe(struct platform_device *pdev)
 	writel(readl(reg + 0x13c4) | BIT(16), reg + 0x13c4);
 	writel(readl(reg + 0x05a4) | BIT(17) | BIT(16) | BIT(0), reg + 0x05a4);
 
+	/* Configure CSI top clock parent to PERI0_600M (/1 = 600 MHz), leaving gate off until driver stream */
+	writel((4 << 24) | 0x0, reg + 0x1840);
+
+	/* Configure and enable ISP clock at 600 MHz from PERI0_600M */
+	writel(BIT(31) | (3 << 24) | 0x0, reg + 0x1860);
+
 
 	return devm_sunxi_ccu_probe(&pdev->dev, reg, &sun60i_a733_ccu_desc);
 }

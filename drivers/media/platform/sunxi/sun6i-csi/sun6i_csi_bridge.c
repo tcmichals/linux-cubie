@@ -580,15 +580,17 @@ static int sun6i_csi_bridge_set_fmt(struct v4l2_subdev *subdev,
 
 	sun6i_csi_bridge_mbus_format_prepare(mbus_format);
 
-	pad_format = v4l2_subdev_state_get_format(state, format->pad);
-	if (pad_format)
-		*pad_format = *mbus_format;
+	if (state) {
+		pad_format = v4l2_subdev_state_get_format(state, format->pad);
+		if (pad_format)
+			*pad_format = *mbus_format;
 
-	if (format->pad == SUN6I_CSI_BRIDGE_PAD_SINK) {
-		struct v4l2_mbus_framefmt *source_format =
-			v4l2_subdev_state_get_format(state, SUN6I_CSI_BRIDGE_PAD_SOURCE);
-		if (source_format)
-			*source_format = *mbus_format;
+		if (format->pad == SUN6I_CSI_BRIDGE_PAD_SINK) {
+			struct v4l2_mbus_framefmt *source_format =
+				v4l2_subdev_state_get_format(state, SUN6I_CSI_BRIDGE_PAD_SOURCE);
+			if (source_format)
+				*source_format = *mbus_format;
+		}
 	}
 
 	if (format->which == V4L2_SUBDEV_FORMAT_ACTIVE)
@@ -800,6 +802,11 @@ int sun6i_csi_bridge_setup(struct sun6i_csi_device *csi_dev)
 	int ret;
 
 	mutex_init(&bridge->lock);
+
+	bridge->mbus_format.code = MEDIA_BUS_FMT_SGBRG10_1X10;
+	bridge->mbus_format.width = 1920;
+	bridge->mbus_format.height = 1080;
+	sun6i_csi_bridge_mbus_format_prepare(&bridge->mbus_format);
 
 	/* V4L2 Subdev */
 
