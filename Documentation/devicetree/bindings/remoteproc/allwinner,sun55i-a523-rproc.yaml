@@ -72,6 +72,11 @@ properties:
     maxItems: 1
 
   memory-region:
+    description:
+      The regions depend on the firmware, not on the SoC. Firmware that
+      uses virtio needs the vring and buffer pool. Firmware linked to run
+      only from the two SRAMs has no DRAM sections and needs no DRAM
+      region, and firmware without a trace buffer needs no trace region.
     minItems: 1
     items:
       - description: Virtio vring and buffer pool, a shared-dma-pool
