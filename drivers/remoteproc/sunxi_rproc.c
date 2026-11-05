@@ -151,8 +151,12 @@ VISIBLE_IF_KUNIT
 void sunxi_rproc_vq_work(struct work_struct *work)
 {
 	struct sunxi_rproc *priv = container_of(work, struct sunxi_rproc, vq_work);
+	struct rproc *rproc = priv->rproc;
 
-	idr_for_each(&priv->rproc->notifyids, sunxi_rproc_vq_notify, priv->rproc);
+	mutex_lock(&rproc->lock);
+	if (rproc->state == RPROC_RUNNING)
+		idr_for_each(&rproc->notifyids, sunxi_rproc_vq_notify, rproc);
+	mutex_unlock(&rproc->lock);
 }
 EXPORT_SYMBOL_IF_KUNIT(sunxi_rproc_vq_work);
 
@@ -169,23 +173,6 @@ void sunxi_rproc_mb_rx_callback(struct mbox_client *cl, void *data)
 }
 EXPORT_SYMBOL_IF_KUNIT(sunxi_rproc_mb_rx_callback);
 
-VISIBLE_IF_KUNIT
-irqreturn_t sunxi_rproc_crash_handler(int irq, void *data)
-{
-	struct sunxi_rproc *priv = data;
-
-	/*
-	 * Stays masked until the next start(); recovery runs stop() first. A
-	 * stop() that already disarmed it has disabled the line itself.
-	 */
-	if (test_and_clear_bit(SUNXI_RPROC_CRASH_IRQ_ARMED, &priv->flags))
-		disable_irq_nosync(irq);
-
-	rproc_report_crash(priv->rproc, RPROC_FATAL_ERROR);
-
-	return IRQ_HANDLED;
-}
-EXPORT_SYMBOL_IF_KUNIT(sunxi_rproc_crash_handler);
 
 /*
  * Crash dumps cover both SRAMs, by the core's addresses so a dump loads into a
@@ -357,10 +344,6 @@ int sunxi_rproc_start(struct rproc *rproc)
 		return ret;
 	}
 
-	if (priv->crash_irq > 0 &&
-	    !test_and_set_bit(SUNXI_RPROC_CRASH_IRQ_ARMED, &priv->flags))
-		enable_irq(priv->crash_irq);
-
 	return 0;
 }
 EXPORT_SYMBOL_IF_KUNIT(sunxi_rproc_start);
@@ -374,10 +357,6 @@ static int sunxi_rproc_stop(struct rproc *rproc)
 
 	/* Assert reset so the core stops executing */
 	reset_control_assert(priv->rst_core);
-
-	if (priv->crash_irq > 0 &&
-	    test_and_clear_bit(SUNXI_RPROC_CRASH_IRQ_ARMED, &priv->flags))
-		disable_irq(priv->crash_irq);
 
 	return 0;
 }
@@ -691,7 +670,6 @@ static int sunxi_rproc_probe(struct platform_device *pdev)
 	struct dev_pm_domain_list *pd_list;
 	struct sunxi_rproc *priv;
 	struct rproc *rproc;
-	int crash_irq;
 	int ret;
 
 	/* firmware-name is optional: the default is kept only when it is absent */
@@ -771,20 +749,6 @@ static int sunxi_rproc_probe(struct platform_device *pdev)
 	if (ret)
 		return ret;
 
-	/* Optional crash interrupt */
-	crash_irq = platform_get_irq_optional(pdev, 0);
-	if (crash_irq > 0) {
-		ret = devm_request_threaded_irq(dev, crash_irq, NULL,
-						sunxi_rproc_crash_handler,
-						IRQF_ONESHOT | IRQF_NO_AUTOEN,
-						"sunxi-rproc-crash",
-						priv);
-		if (ret)
-			return dev_err_probe(dev, ret, "failed to request crash IRQ\n");
-		priv->crash_irq = crash_irq;
-	} else if (crash_irq != -ENXIO) {
-		return dev_err_probe(dev, crash_irq, "failed to get crash IRQ\n");
-	}
 
 	/* Mailbox (optional: without it the core runs standalone) */
 	INIT_WORK(&priv->vq_work, sunxi_rproc_vq_work);
