@@ -341,7 +341,7 @@ config SUNXI_REMOTEPROC
 
 config SUNXI_REMOTEPROC_KUNIT_TEST
 	tristate "KUnit tests for Allwinner sunxi remoteproc" if !KUNIT_ALL_TESTS
-	depends on SUNXI_REMOTEPROC && KUNIT && COMMON_CLK && RESET_CONTROLLER
+	depends on SUNXI_REMOTEPROC && KUNIT && COMMON_CLK && RESET_CONTROLLER && PM
 	default KUNIT_ALL_TESTS
 	help
 	  KUnit tests for the Allwinner sunxi_rproc driver: da_to_va()

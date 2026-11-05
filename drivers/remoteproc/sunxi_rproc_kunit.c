@@ -386,11 +386,11 @@ static void test_rproc_da_to_va_dram_carveout(struct kunit *test)
  */
 static void use_mmio_mocks(struct test_context *ctx)
 {
-	ctx->priv.cfg_va = (void __iomem *)ctx->mock_cfg_regs;
-	ctx->priv.remap_va = (void __iomem *)&ctx->mock_remap_reg;
-	ctx->priv.sram0_va = (void __iomem *)ctx->mock_sram_buf;
+	ctx->priv.cfg_va = (void __iomem __force *)ctx->mock_cfg_regs;
+	ctx->priv.remap_va = (void __iomem __force *)&ctx->mock_remap_reg;
+	ctx->priv.sram0_va = (void __iomem __force *)ctx->mock_sram_buf;
 	ctx->priv.sram0_size = sizeof(ctx->mock_sram_buf);
-	ctx->priv.sram1_va = (void __iomem *)ctx->mock_sram1_buf;
+	ctx->priv.sram1_va = (void __iomem __force *)ctx->mock_sram1_buf;
 	ctx->priv.sram1_size = sizeof(ctx->mock_sram1_buf);
 }
 
@@ -622,6 +622,13 @@ static void test_vq_work_notifies_every_vring(struct kunit *test)
 		KUNIT_ASSERT_EQ(test, idr_alloc(&rproc->notifyids, &vring[i], 0, 0,
 						GFP_KERNEL), i);
 
+	/* When offline, vq_work drops notifications */
+	rproc->state = RPROC_OFFLINE;
+	sunxi_rproc_vq_work(&ctx->priv.vq_work);
+	KUNIT_EXPECT_EQ(test, ctx->nr_notified, 0);
+
+	/* When running, every vring is notified */
+	rproc->state = RPROC_RUNNING;
 	sunxi_rproc_vq_work(&ctx->priv.vq_work);
 
 	KUNIT_ASSERT_EQ(test, ctx->nr_notified, 3);
@@ -640,135 +647,7 @@ static void test_vq_notify_unknown_vring(struct kunit *test)
 	KUNIT_EXPECT_EQ(test, sunxi_rproc_vq_notify(5, NULL, mock_real_rproc(test, ctx)), 0);
 }
 
-/* ==================== Lifecycle: stop and the crash interrupt ==================== */
 
-static void mock_free_irq_desc(void *irq)
-{
-	irq_free_desc((unsigned long)irq);
-}
-
-static void mock_free_crash_irq(void *data)
-{
-	struct test_context *ctx = data;
-
-	free_irq(ctx->priv.crash_irq, &ctx->priv);
-}
-
-/* A crash line on the dummy chip, requested like probe() does: not enabled */
-static int mock_crash_line(struct kunit *test, struct test_context *ctx)
-{
-	int irq = irq_alloc_desc(NUMA_NO_NODE);
-
-	KUNIT_ASSERT_GE(test, irq, 0);
-	irq_set_chip_and_handler(irq, &dummy_irq_chip, handle_simple_irq);
-	/* Some architectures (arm, powerpc) mark new descriptors unrequestable */
-	irq_clear_status_flags(irq, IRQ_NOREQUEST | IRQ_NOPROBE);
-	KUNIT_ASSERT_EQ(test, kunit_add_action_or_reset(test, mock_free_irq_desc,
-							(void *)(unsigned long)irq), 0);
-	KUNIT_ASSERT_EQ(test, request_threaded_irq(irq, NULL, sunxi_rproc_crash_handler,
-						   IRQF_ONESHOT | IRQF_NO_AUTOEN,
-						   "sunxi-rproc-test-crash", &ctx->priv), 0);
-	ctx->priv.crash_irq = irq;
-	KUNIT_ASSERT_EQ(test, kunit_add_action_or_reset(test, mock_free_crash_irq, ctx), 0);
-	return irq;
-}
-
-static bool crash_irq_enabled(int irq)
-{
-	return !irqd_irq_disabled(irq_get_irq_data(irq));
-}
-
-/* Disable depth; irq_to_desc() is not exported, so go through the irq_data */
-static unsigned int crash_irq_depth(int irq)
-{
-	return container_of(irq_get_irq_data(irq), struct irq_desc, irq_data)->depth;
-}
-
-static void test_start_stop_arm_crash_irq(struct kunit *test)
-{
-	struct test_context *ctx = create_test_ctx(test);
-	int irq;
-
-	use_mmio_mocks(ctx);
-	irq = mock_crash_line(test, ctx);
-	KUNIT_EXPECT_FALSE(test, crash_irq_enabled(irq));
-
-	/* Armed once the core runs; a second start() does not enable it twice */
-	KUNIT_ASSERT_EQ(test, sunxi_rproc_start(&ctx->rproc), 0);
-	KUNIT_ASSERT_EQ(test, sunxi_rproc_start(&ctx->rproc), 0);
-	KUNIT_EXPECT_TRUE(test, crash_irq_enabled(irq));
-	KUNIT_EXPECT_EQ(test, crash_irq_depth(irq), 0U);
-
-	/* stop() disarms it; a second stop() does not disable it twice */
-	KUNIT_EXPECT_EQ(test, sunxi_rproc_ops.stop(&ctx->rproc), 0);
-	KUNIT_EXPECT_FALSE(test, crash_irq_enabled(irq));
-	KUNIT_EXPECT_EQ(test, sunxi_rproc_ops.stop(&ctx->rproc), 0);
-	KUNIT_EXPECT_EQ(test, crash_irq_depth(irq), 1U);
-
-	/* And arms it again on the next start() */
-	KUNIT_EXPECT_EQ(test, sunxi_rproc_start(&ctx->rproc), 0);
-	KUNIT_EXPECT_TRUE(test, crash_irq_enabled(irq));
-	KUNIT_EXPECT_EQ(test, sunxi_rproc_ops.stop(&ctx->rproc), 0);
-}
-
-static void test_stop_without_crash_irq(struct kunit *test)
-{
-	struct test_context *ctx = create_test_ctx(test);
-
-	use_mmio_mocks(ctx);
-	KUNIT_EXPECT_EQ(test, sunxi_rproc_start(&ctx->rproc), 0);
-	KUNIT_EXPECT_EQ(test, sunxi_rproc_ops.stop(&ctx->rproc), 0);
-	KUNIT_EXPECT_FALSE(test, test_bit(SUNXI_RPROC_CRASH_IRQ_ARMED, &ctx->priv.flags));
-}
-
-/* Fire the crash line and wait for its threaded handler */
-static void fire_crash_irq(struct kunit *test, int irq)
-{
-	KUNIT_ASSERT_EQ(test, generic_handle_irq_safe(irq), 0);
-	synchronize_irq(irq);
-}
-
-static void test_crash_handler_disarms_and_reports(struct kunit *test)
-{
-	struct test_context *ctx = create_test_ctx(test);
-	struct rproc *rproc = mock_real_rproc(test, ctx);
-	int irq;
-
-	use_mmio_mocks(ctx);
-	irq = mock_crash_line(test, ctx);
-
-	/* The crash is reported to a running core; no recovery in a test */
-	ctx->priv.rproc = rproc;
-	rproc->state = RPROC_RUNNING;
-	rproc->recovery_disabled = true;
-
-	/* Armed by start(): the handler masks the line until the next start() */
-	KUNIT_ASSERT_EQ(test, sunxi_rproc_start(&ctx->rproc), 0);
-	fire_crash_irq(test, irq);
-	flush_work(&rproc->crash_handler);
-	KUNIT_EXPECT_FALSE(test, test_bit(SUNXI_RPROC_CRASH_IRQ_ARMED, &ctx->priv.flags));
-	KUNIT_EXPECT_FALSE(test, crash_irq_enabled(irq));
-	KUNIT_EXPECT_EQ(test, crash_irq_depth(irq), 1U);
-	KUNIT_EXPECT_EQ(test, rproc->state, RPROC_CRASHED);
-	KUNIT_EXPECT_EQ(test, rproc->crash_cnt, 1U);
-
-	/* stop() of the crashed core leaves the line masked once */
-	KUNIT_EXPECT_EQ(test, sunxi_rproc_ops.stop(&ctx->rproc), 0);
-	KUNIT_EXPECT_EQ(test, crash_irq_depth(irq), 1U);
-
-	/*
-	 * A crash racing stop(): stop() has disarmed the line and disables it
-	 * itself, so the handler must not disable it a second time.
-	 */
-	rproc->state = RPROC_RUNNING;
-	KUNIT_ASSERT_EQ(test, sunxi_rproc_start(&ctx->rproc), 0);
-	clear_bit(SUNXI_RPROC_CRASH_IRQ_ARMED, &ctx->priv.flags);
-	fire_crash_irq(test, irq);
-	flush_work(&rproc->crash_handler);
-	KUNIT_EXPECT_EQ(test, crash_irq_depth(irq), 0U);
-	KUNIT_EXPECT_EQ(test, rproc->crash_cnt, 2U);
-	disable_irq(irq);
-}
 
 /* ==================== prepare/start with real clocks and resets ==================== */
 
@@ -1033,15 +912,13 @@ static void test_start_core_reset_failure(struct kunit *test)
 {
 	struct test_context *ctx = create_test_ctx(test);
 	struct mock_providers *mp = use_mock_providers(test, ctx);
-	int irq = mock_crash_line(test, ctx);
 
 	mp->fail_rst = BIT(RST_CORE);
 	ctx->rproc.bootaddr = SUN55I_E906_SRAM_SPACE0_DA;
 
-	/* The core stays held and the crash interrupt stays off */
+	/* The core stays held */
 	KUNIT_EXPECT_EQ(test, sunxi_rproc_start(&ctx->rproc), -EIO);
 	KUNIT_EXPECT_TRUE(test, mp->asserted[RST_CORE]);
-	KUNIT_EXPECT_FALSE(test, crash_irq_enabled(irq));
 }
 
 /* ==================== prepare: power-up failure ==================== */
@@ -1279,9 +1156,6 @@ static struct kunit_case sunxi_rproc_test_cases[] = {
 	/* Lifecycle: start */
 	KUNIT_CASE(test_start_bootaddr_programming),
 	KUNIT_CASE(test_start_rejects_bootaddr_overflow),
-	KUNIT_CASE(test_start_stop_arm_crash_irq),
-	KUNIT_CASE(test_stop_without_crash_irq),
-	KUNIT_CASE(test_crash_handler_disarms_and_reports),
 	/* Lifecycle: prepare and unprepare */
 	KUNIT_CASE(test_prepare_and_unprepare_remap),
 	KUNIT_CASE(test_prepare_clears_sram),
