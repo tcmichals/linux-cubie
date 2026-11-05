@@ -81,15 +81,6 @@ properties:
       - const: cpus
       - const: rv
 
-  allwinner,tx-done-irq:
-    type: boolean
-    description:
-      Signal TX done with the write interrupt of the receiver's bank instead
-      of polling. A message is done once the receiver's FIFO has room for the
-      next one either way; the write interrupt is raised while the FIFO has
-      room. Without this property a full FIFO is polled. Received messages
-      use the host bank read interrupt either way.
-
   '#mbox-cells':
     const: 1
     description:
