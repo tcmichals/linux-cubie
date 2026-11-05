@@ -90,13 +90,6 @@ properties:
       - const: dram
       - const: trace
 
-  interrupts:
-    maxItems: 1
-    description:
-      Interrupt the RISC-V core raises on a fatal error. The A523 has no
-      dedicated line for this, so it is present only where the system
-      integration provides one.
-
   power-domains:
     items:
       - description: RISC-V core power domain
