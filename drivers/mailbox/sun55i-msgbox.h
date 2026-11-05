@@ -68,15 +68,15 @@ struct sun55i_msgbox {
 	spinlock_t lock;
 	/* Host bank interrupt: messages received by this processor */
 	int irq;
-	/* "allwinner,tx-done-irq": TX done by the write IRQ, else polled */
-	bool tx_done_irq;
 	/* Indexed by route (host port local_n) */
 	struct sun55i_tx_irq tx_irqs[SUN55I_NUM_ROUTES];
 	/* Channels whose startup() holds their route's TX-done line */
 	unsigned long tx_irq_held;
 	/* Serialises tx_irqs[].users and the matching request_irq()/free_irq() */
 	struct mutex tx_irq_lock;
-	/* Timer mode, under @lock: channels whose message waits for FIFO room */
+	/* Channels shutting down: send_data() refuses and never arms */
+	unsigned long shutting_down;
+	/* Under @lock: channels whose message waits for FIFO room */
 	unsigned long tx_held;
 	u32 tx_held_msg[SUN55I_NUM_CHANS];
 };

@@ -166,15 +166,15 @@ static u32 sun55i_msgbox_tx_count(struct sun55i_msgbox *mbox, int remote_id,
  * before enabling, so a stale bit does not fire at once; if a slot has been
  * freed meanwhile the clear is ignored and the IRQ fires, as it should.
  */
-static void sun55i_msgbox_tx_irq_enable(struct sun55i_msgbox *mbox, int remote_id,
-					int remote_n, int p, bool enable)
+static void __sun55i_msgbox_tx_irq_enable(struct sun55i_msgbox *mbox, int remote_id,
+					  int remote_n, int p, bool enable)
 {
 	void __iomem *base = mbox->regs[remote_id];
 	void __iomem *reg = base + SUN55I_MSGBOX_WRITE_IRQ_ENABLE(remote_n);
-	unsigned long flags;
 	u32 val;
 
-	spin_lock_irqsave(&mbox->lock, flags);
+	lockdep_assert_held(&mbox->lock);
+
 	val = sun55i_msgbox_readl(reg);
 	if (enable) {
 		sun55i_msgbox_writel(SUN55I_MSGBOX_WR_IRQ_PEND_BIT(p),
@@ -184,6 +184,15 @@ static void sun55i_msgbox_tx_irq_enable(struct sun55i_msgbox *mbox, int remote_i
 		val &= ~SUN55I_MSGBOX_WR_IRQ_EN_BIT(p);
 	}
 	sun55i_msgbox_writel(val, reg);
+}
+
+static void sun55i_msgbox_tx_irq_enable(struct sun55i_msgbox *mbox, int remote_id,
+					int remote_n, int p, bool enable)
+{
+	unsigned long flags;
+
+	spin_lock_irqsave(&mbox->lock, flags);
+	__sun55i_msgbox_tx_irq_enable(mbox, remote_id, remote_n, p, enable);
 	spin_unlock_irqrestore(&mbox->lock, flags);
 }
 
@@ -205,8 +214,20 @@ irqreturn_t sun55i_msgbox_tx_irq(int irq, void *dev_id)
 	pend = sun55i_msgbox_readl(base + SUN55I_MSGBOX_WRITE_IRQ_STATUS(route->remote_n));
 
 	for (p = 0; p < SUN55I_CHANS_PER_PROC; p++) {
+		int n = tx->local_n * SUN55I_CHANS_PER_PROC + p;
+
 		if (!(en & pend & SUN55I_MSGBOX_WR_IRQ_PEND_BIT(p)))
 			continue;
+
+		/* If a message was held because the FIFO was full, write it now */
+		if (test_and_clear_bit(n, &mbox->tx_held)) {
+			sun55i_msgbox_writel(mbox->tx_held_msg[n],
+					     base + SUN55I_MSGBOX_MSG_FIFO(route->remote_n, p));
+			sun55i_msgbox_writel(SUN55I_MSGBOX_WR_IRQ_PEND_BIT(p),
+					     base + SUN55I_MSGBOX_WRITE_IRQ_STATUS(route->remote_n));
+			if (sun55i_msgbox_tx_count(mbox, route->remote_id, route->remote_n, p) >= SUN55I_FIFO_MAX)
+				continue;
+		}
 
 		/* Level: mask it before acking, a slot is free now */
 		en &= ~SUN55I_MSGBOX_WR_IRQ_EN_BIT(p);
@@ -277,11 +298,12 @@ static int sun55i_msgbox_send_data(struct mbox_chan *chan, void *data)
 
 	sun55i_msgbox_chan_to_route(n, &local_n, &p, &remote_id, &remote_n);
 
-	/*
-	 * Under the lock: in timer mode the poll timer may write a held
-	 * message into the same FIFO from another CPU (last_tx_done()).
-	 */
 	spin_lock_irqsave(&mbox->lock, flags);
+
+	if (test_bit(n, &mbox->shutting_down)) {
+		spin_unlock_irqrestore(&mbox->lock, flags);
+		return -ESHUTDOWN;
+	}
 
 	/*
 	 * The core calls send_data() only with no request active, so a message
@@ -291,31 +313,27 @@ static int sun55i_msgbox_send_data(struct mbox_chan *chan, void *data)
 	__clear_bit(n, &mbox->tx_held);
 
 	/*
-	 * Writing a full FIFO corrupts its count, so never do it. In write IRQ
-	 * mode the IRQ armed below retries the message once a slot is free. In
-	 * timer mode the core polls only a channel whose send succeeded, so
-	 * hold the message and let last_tx_done() write it.
+	 * Writing a full FIFO corrupts its count, so never do it. If full,
+	 * hold the message and arm the write IRQ to send it once a slot frees.
+	 * Returning 0 ensures the mailbox core tracks active_req and does not
+	 * leave dangling pointers in msg_data (V4-HELD).
 	 */
 	full = sun55i_msgbox_tx_count(mbox, remote_id, remote_n, p) >= SUN55I_FIFO_MAX;
 	if (!full) {
 		sun55i_msgbox_writel(msg, mbox->regs[remote_id] +
 				     SUN55I_MSGBOX_MSG_FIFO(remote_n, p));
-	} else if (!mbox->tx_done_irq) {
+	} else {
 		mbox->tx_held_msg[n] = msg;
 		__set_bit(n, &mbox->tx_held);
 	}
 
-	spin_unlock_irqrestore(&mbox->lock, flags);
-
 	/*
-	 * A kick is a doorbell, the data is in shared memory: it is done once
-	 * the FIFO accepted it and has room for the next one. The write IRQ
-	 * reports exactly that, at once or when the receiver reads a message.
+	 * Clear latched status and arm the write IRQ in the same lock section
+	 * as the FIFO write (V4-ARM), preventing a race with tx_irq on another CPU.
 	 */
-	if (mbox->tx_done_irq) {
-		sun55i_msgbox_tx_irq_enable(mbox, remote_id, remote_n, p, true);
-		return full ? -EBUSY : 0;
-	}
+	__sun55i_msgbox_tx_irq_enable(mbox, remote_id, remote_n, p, true);
+
+	spin_unlock_irqrestore(&mbox->lock, flags);
 
 	return 0;
 }
@@ -329,6 +347,7 @@ static int sun55i_msgbox_startup(struct mbox_chan *chan)
 	u32 stale[SUN55I_FIFO_MAX];
 	unsigned long flags;
 	u32 val;
+	int ret;
 
 	sun55i_msgbox_chan_to_route(n, &local_n, &p, &remote_id, &remote_n);
 
@@ -336,21 +355,17 @@ static int sun55i_msgbox_startup(struct mbox_chan *chan)
 	 * Get the TX-done line before the receive IRQ is enabled: on failure the
 	 * core clears chan->cl, which a receive handler must not be using.
 	 */
-	if (mbox->tx_done_irq) {
-		int ret;
+	sun55i_msgbox_writel(SUN55I_MSGBOX_WR_IRQ_THR_ONE_FREE, mbox->regs[remote_id] +
+			     SUN55I_MSGBOX_WRITE_IRQ_THRESHOLD(remote_n, p));
 
-		/* TX done: the write IRQ, raised while one slot is free */
-		sun55i_msgbox_writel(SUN55I_MSGBOX_WR_IRQ_THR_ONE_FREE, mbox->regs[remote_id] +
-				     SUN55I_MSGBOX_WRITE_IRQ_THRESHOLD(remote_n, p));
-
-		ret = sun55i_msgbox_tx_irq_get(mbox, local_n);
-		if (ret)
-			return ret;
-		set_bit(n, &mbox->tx_irq_held);
-	}
+	ret = sun55i_msgbox_tx_irq_get(mbox, local_n);
+	if (ret)
+		return ret;
+	set_bit(n, &mbox->tx_irq_held);
 
 	/* Drop stale receive data, then enable the receive IRQ */
 	spin_lock_irqsave(&mbox->lock, flags);
+	clear_bit(n, &mbox->shutting_down);
 	sun55i_msgbox_rx_drain(mbox, local_n, p, stale);
 	val = sun55i_msgbox_readl(base + SUN55I_MSGBOX_READ_IRQ_ENABLE(local_n));
 	val |= SUN55I_MSGBOX_RD_IRQ_EN_BIT(p);
@@ -372,12 +387,18 @@ static void sun55i_msgbox_shutdown(struct mbox_chan *chan)
 
 	sun55i_msgbox_chan_to_route(n, &local_n, &p, &remote_id, &remote_n);
 
-	/* Disable the receive IRQ; a message held for a full FIFO is dropped */
+	/*
+	 * Mark channel shutting down under lock so concurrent send_data()
+	 * cannot re-arm the write IRQ (V4-SHUT). Drop held messages and
+	 * disable both read and write IRQs.
+	 */
 	spin_lock_irqsave(&mbox->lock, flags);
+	set_bit(n, &mbox->shutting_down);
 	val = sun55i_msgbox_readl(base + SUN55I_MSGBOX_READ_IRQ_ENABLE(local_n));
 	val &= ~SUN55I_MSGBOX_RD_IRQ_EN_BIT(p);
 	sun55i_msgbox_writel(val, base + SUN55I_MSGBOX_READ_IRQ_ENABLE(local_n));
 	__clear_bit(n, &mbox->tx_held);
+	__sun55i_msgbox_tx_irq_enable(mbox, remote_id, remote_n, p, false);
 	spin_unlock_irqrestore(&mbox->lock, flags);
 
 	/* The handler delivers outside the lock: let it finish with this channel */
@@ -385,14 +406,7 @@ static void sun55i_msgbox_shutdown(struct mbox_chan *chan)
 
 	/* Release the line only if this channel's startup() got it */
 	if (test_and_clear_bit(n, &mbox->tx_irq_held)) {
-		sun55i_msgbox_tx_irq_enable(mbox, remote_id, remote_n, p, false);
 		sun55i_msgbox_tx_irq_put(mbox, local_n);
-		/*
-		 * A TX-done handler that was already running submits the next
-		 * message through send_data(), which arms the IRQ again. It has
-		 * finished now (free_irq() or synchronize_irq() above), so
-		 * disarm once more.
-		 */
 		sun55i_msgbox_tx_irq_enable(mbox, remote_id, remote_n, p, false);
 	}
 
@@ -400,35 +414,6 @@ static void sun55i_msgbox_shutdown(struct mbox_chan *chan)
 	spin_lock_irqsave(&mbox->lock, flags);
 	sun55i_msgbox_rx_drain(mbox, local_n, p, stale);
 	spin_unlock_irqrestore(&mbox->lock, flags);
-}
-
-static bool sun55i_msgbox_last_tx_done(struct mbox_chan *chan)
-{
-	struct sun55i_msgbox *mbox = to_sun55i_msgbox(chan);
-	int n = chan - mbox->controller.chans;
-	int local_n, p, remote_id, remote_n;
-	unsigned long flags;
-	bool done;
-
-	sun55i_msgbox_chan_to_route(n, &local_n, &p, &remote_id, &remote_n);
-
-	/*
-	 * Timer mode only. A kick is a doorbell, the data is in shared memory:
-	 * it is done once the receiver's FIFO accepted it and has room for the
-	 * next one; a full FIFO waits for the next poll.
-	 */
-	spin_lock_irqsave(&mbox->lock, flags);
-	done = sun55i_msgbox_tx_count(mbox, remote_id, remote_n, p) < SUN55I_FIFO_MAX;
-
-	/* send_data() found the FIFO full and held the message: write it now */
-	if (done && __test_and_clear_bit(n, &mbox->tx_held)) {
-		sun55i_msgbox_writel(mbox->tx_held_msg[n], mbox->regs[remote_id] +
-				     SUN55I_MSGBOX_MSG_FIFO(remote_n, p));
-		done = sun55i_msgbox_tx_count(mbox, remote_id, remote_n, p) < SUN55I_FIFO_MAX;
-	}
-	spin_unlock_irqrestore(&mbox->lock, flags);
-
-	return done;
 }
 
 static bool sun55i_msgbox_peek_data(struct mbox_chan *chan)
@@ -449,7 +434,6 @@ const struct mbox_chan_ops sun55i_msgbox_chan_ops = {
 	.send_data    = sun55i_msgbox_send_data,
 	.startup      = sun55i_msgbox_startup,
 	.shutdown     = sun55i_msgbox_shutdown,
-	.last_tx_done = sun55i_msgbox_last_tx_done,
 	.peek_data    = sun55i_msgbox_peek_data,
 };
 EXPORT_SYMBOL_IF_KUNIT(sun55i_msgbox_chan_ops);
@@ -562,8 +546,7 @@ static int sun55i_msgbox_probe(struct platform_device *pdev)
 	 * fails the probe; each is requested only while a channel on its route
 	 * is started.
 	 */
-	mbox->tx_done_irq = of_property_read_bool(dev->of_node, "allwinner,tx-done-irq");
-	for (local_n = 0; mbox->tx_done_irq && local_n < SUN55I_NUM_ROUTES; local_n++) {
+	for (local_n = 0; local_n < SUN55I_NUM_ROUTES; local_n++) {
 		const struct sun55i_route *route = &sun55i_msgbox_routes[local_n];
 		struct sun55i_tx_irq *tx = &mbox->tx_irqs[local_n];
 
@@ -578,13 +561,7 @@ static int sun55i_msgbox_probe(struct platform_device *pdev)
 			return -ENOMEM;
 	}
 
-	/* TX done by the write IRQ ("allwinner,tx-done-irq") or by a 1 ms poll */
-	if (mbox->tx_done_irq) {
-		mbox->controller.txdone_irq = true;
-	} else {
-		mbox->controller.txdone_poll = true;
-		mbox->controller.txpoll_period = 1;
-	}
+	mbox->controller.txdone_irq = true;
 
 	ret = devm_mbox_controller_register(dev, &mbox->controller);
 	if (ret)
