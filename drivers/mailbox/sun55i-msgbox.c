@@ -18,7 +18,6 @@
 #include <linux/limits.h>
 #include <linux/lockdep.h>
 #include <linux/mailbox_controller.h>
-#include <linux/mod_devicetable.h>
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/platform_device.h>

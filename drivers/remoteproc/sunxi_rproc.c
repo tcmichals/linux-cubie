@@ -22,7 +22,6 @@
 #include <linux/io.h>
 #include <linux/limits.h>
 #include <linux/mailbox_client.h>
-#include <linux/mod_devicetable.h>
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/of_reserved_mem.h>
