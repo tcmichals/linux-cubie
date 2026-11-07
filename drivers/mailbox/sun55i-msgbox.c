@@ -156,9 +156,9 @@ static u32 sun55i_msgbox_tx_count(struct sun55i_msgbox *mbox, int remote_id,
 
 /*
  * The write IRQ of a channel lives in the receiver's bank and is raised while
- * at least one FIFO slot is free (level). In write IRQ mode it is enabled
- * after every send: it fires at once if the FIFO still has room, or when the
- * receiver reads a message, and the handler disables it again.
+ * at least one FIFO slot is free (level). It is enabled after every send: it
+ * fires at once if the FIFO still has room, or when the receiver reads a
+ * message, and the handler disables it again.
  *
  * The status bit is latched: it stays set after the FIFO fills up again until
  * it is cleared, and the clear only takes while no slot is free. Clear it
@@ -218,17 +218,16 @@ irqreturn_t sun55i_msgbox_tx_irq(int irq, void *dev_id)
 		if (!(en & pend & SUN55I_MSGBOX_WR_IRQ_PEND_BIT(p)))
 			continue;
 
-		/* If a message was held because the FIFO was full, write it now */
-		if (test_and_clear_bit(n, &mbox->tx_held)) {
+		/*
+		 * A message held because the FIFO was full goes in now, which
+		 * completes it. The FIFO may be full again; send_data() holds
+		 * the next message if so.
+		 */
+		if (test_and_clear_bit(n, &mbox->tx_held))
 			sun55i_msgbox_writel(mbox->tx_held_msg[n],
 					     base + SUN55I_MSGBOX_MSG_FIFO(route->remote_n, p));
-			sun55i_msgbox_writel(SUN55I_MSGBOX_WR_IRQ_PEND_BIT(p),
-					     base + SUN55I_MSGBOX_WRITE_IRQ_STATUS(route->remote_n));
-			if (sun55i_msgbox_tx_count(mbox, route->remote_id, route->remote_n, p) >= SUN55I_FIFO_MAX)
-				continue;
-		}
 
-		/* Level: mask it before acking, a slot is free now */
+		/* Level: mask it before acking */
 		en &= ~SUN55I_MSGBOX_WR_IRQ_EN_BIT(p);
 		sun55i_msgbox_writel(en, base + SUN55I_MSGBOX_WRITE_IRQ_ENABLE(route->remote_n));
 		sun55i_msgbox_writel(SUN55I_MSGBOX_WR_IRQ_PEND_BIT(p),
