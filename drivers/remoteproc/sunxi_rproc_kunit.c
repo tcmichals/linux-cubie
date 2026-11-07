@@ -645,8 +645,6 @@ static void test_vq_notify_unknown_vring(struct kunit *test)
 	KUNIT_EXPECT_EQ(test, sunxi_rproc_vq_notify(5, NULL, mock_real_rproc(test, ctx)), 0);
 }
 
-
-
 /* ==================== prepare/start with real clocks and resets ==================== */
 
 /*

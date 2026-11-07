@@ -172,7 +172,6 @@ void sunxi_rproc_mb_rx_callback(struct mbox_client *cl, void *data)
 }
 EXPORT_SYMBOL_IF_KUNIT(sunxi_rproc_mb_rx_callback);
 
-
 /*
  * Crash dumps cover both SRAMs, by the core's addresses so a dump loads into a
  * debugger as is, and every carveout outside them. rproc_resource_cleanup()
@@ -747,7 +746,6 @@ static int sunxi_rproc_probe(struct platform_device *pdev)
 	ret = sunxi_rproc_parse_memory_regions(priv);
 	if (ret)
 		return ret;
-
 
 	/* Mailbox (optional: without it the core runs standalone) */
 	INIT_WORK(&priv->vq_work, sunxi_rproc_vq_work);
