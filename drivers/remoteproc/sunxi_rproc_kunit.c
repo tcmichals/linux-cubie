@@ -5,10 +5,8 @@
  * Covers:
  *  - da_to_va() translation of both SRAM windows, their bounds, overflow
  *    and zero-length handling, and that DRAM is left to the core carveouts
- *  - start()/stop(): STA_ADD programming, bootaddr validation, the core
- *    reset and the crash interrupt armed only while the core runs
- *  - the crash handler: disarms the line it was armed on, never twice,
- *    and reports the crash to the core
+ *  - start()/stop(): STA_ADD programming, bootaddr validation, and the
+ *    core reset released by start() and asserted by stop()
  *  - prepare()/unprepare(): reset and clock order, every failure unwound,
  *    remap bit, SRAM clearing
  *  - sanity_check(): only 32-bit RISC-V firmware

@@ -363,7 +363,7 @@ static int sunxi_rproc_stop(struct rproc *rproc)
 /*
  * Kick payloads must outlive sunxi_rproc_kick(): the mailbox core queues the
  * message *pointer* while a previous request is still active and passes it to
- * the controller later, from the poll timer or the TX-done interrupt. Use
+ * the controller later, from its TX-done interrupt. Use
  * immutable static storage, one entry per vring, so nothing is rewritten
  * while queued.
  */

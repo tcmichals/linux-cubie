@@ -4,11 +4,12 @@
  *
  * Covers:
  *  - the 12-channel routing table
- *  - send_data, last_tx_done, peek_data, startup and shutdown; in timer
- *    mode a message for a full FIFO is held until last_tx_done() has room
+ *  - send_data, peek_data, startup and shutdown; a message for a full
+ *    FIFO is held, kept in order, and dropped after a send timeout or on
+ *    shutdown
  *  - TX done by write IRQ: armed after every send (and for a full FIFO),
  *    the handler disarms, acks and ignores channels it did not arm; a
- *    refused message is resent through the core once a slot is free; a
+ *    held message is written by the handler once a slot is free; a
  *    startup() that cannot get the line never enables the receive IRQ,
  *    and the shutdown() the core then calls leaves the line alone;
  *    shutdown() disarms again after a handler re-armed the channel
@@ -1171,7 +1172,7 @@ static void test_tx_irq_handler_reports_tx_done(struct kunit *test)
  * A message refused for a full FIFO stays queued in the core. Once the
  * receiver reads one, the write IRQ fires and the core resubmits it.
  */
-static void test_tx_irq_refused_message_resent(struct kunit *test)
+static void test_tx_irq_writes_held_message(struct kunit *test)
 {
 	struct mock_msgbox_fixture *fix = create_tx_line_fixture(test);
 	struct mock_tx_client *tc = kunit_kzalloc(test, sizeof(*tc), GFP_KERNEL);
@@ -1348,7 +1349,7 @@ static struct kunit_case sun55i_msgbox_cases[] = {
 	KUNIT_CASE(test_tx_irq_startup_failure_leaves_rx_off),
 	KUNIT_CASE(test_tx_irq_startup_enables_rx_after_line),
 	KUNIT_CASE(test_tx_irq_handler_reports_tx_done),
-	KUNIT_CASE(test_tx_irq_refused_message_resent),
+	KUNIT_CASE(test_tx_irq_writes_held_message),
 	KUNIT_CASE(test_tx_irq_line_shared_by_channels),
 	KUNIT_CASE(test_tx_irq_shutdown_disarms_after_handler),
 	{}

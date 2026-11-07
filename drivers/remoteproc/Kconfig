@@ -348,10 +348,9 @@ config SUNXI_REMOTEPROC_KUNIT_TEST
 	  address translation for both SRAM spaces and DRAM carveouts,
 	  prepare()/unprepare() (reset and clock order, every failure
 	  unwound, remap bit, SRAM clear), start()/stop() (boot address,
-	  crash interrupt), the crash handler, parse_fw() (resource table,
-	  carveouts, crash dump segments), kicks, and the vring
-	  notifications. Fake clocks and a fake reset controller stand in
-	  for the hardware.
+	  core reset), parse_fw() (resource table, carveouts, crash dump
+	  segments), kicks, and the vring notifications. Fake clocks and a
+	  fake reset controller stand in for the hardware.
 	  Say Y here to run these tests during boot or via kunit.py.
 
 config TI_K3_DSP_REMOTEPROC
