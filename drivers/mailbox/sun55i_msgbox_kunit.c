@@ -407,6 +407,35 @@ static struct mock_msgbox_fixture *create_tx_irq_fixture(struct kunit *test)
 	return fix;
 }
 
+/* Every route has a TX-done line, which startup() requests */
+static struct mock_msgbox_fixture *create_tx_line_fixture(struct kunit *test)
+{
+	struct mock_msgbox_fixture *fix = create_tx_irq_fixture(test);
+	int i;
+
+	for (i = 0; i < SUN55I_NUM_ROUTES; i++) {
+		fix->mbox.tx_irqs[i].irq = mock_alloc_irq(test);
+		fix->mbox.tx_irqs[i].name = "sun55i-msgbox-test-tx";
+	}
+	return fix;
+}
+
+static void mock_shutdown_action(void *chan)
+{
+	sun55i_msgbox_chan_ops.shutdown(chan);
+}
+
+/*
+ * startup(), with shutdown() as a cleanup action: the line is released before
+ * its descriptor is freed even when an assertion ends the test early. A test
+ * may shut the channel down itself; a second shutdown() is harmless.
+ */
+static void mock_startup(struct kunit *test, struct mbox_chan *chan)
+{
+	KUNIT_ASSERT_EQ(test, sun55i_msgbox_chan_ops.startup(chan), 0);
+	KUNIT_ASSERT_EQ(test, kunit_add_action_or_reset(test, mock_shutdown_action, chan), 0);
+}
+
 static void test_tx_irq_send_during_shutdown_refused(struct kunit *test)
 {
 	struct mock_msgbox_fixture *fix = create_tx_irq_fixture(test);
@@ -560,13 +589,13 @@ static void test_functional_peek_data_sweep(struct kunit *test)
 
 static void test_functional_startup_and_shutdown(struct kunit *test)
 {
-	struct mock_msgbox_fixture *fix = create_mock_fixture(test);
+	struct mock_msgbox_fixture *fix = create_tx_line_fixture(test);
 	u32 en_idx = SUN55I_MSGBOX_READ_IRQ_ENABLE(2) / 4;
 	u32 stat_idx = SUN55I_MSGBOX_READ_IRQ_STATUS(2) / 4;
 
 	/* Startup on Channel 8: enables IRQ and clears a stale pending bit */
 	mock_write_reg(fix, 0, stat_idx, SUN55I_MSGBOX_RD_IRQ_PEND_BIT(0));
-	sun55i_msgbox_chan_ops.startup(&fix->chans[8]);
+	mock_startup(test, &fix->chans[8]);
 	KUNIT_EXPECT_EQ(test, mock_read_reg(fix, 0, en_idx) & SUN55I_MSGBOX_RD_IRQ_EN_BIT(0),
 			SUN55I_MSGBOX_RD_IRQ_EN_BIT(0));
 	KUNIT_EXPECT_EQ(test, mock_read_reg(fix, 0, stat_idx) & SUN55I_MSGBOX_RD_IRQ_PEND_BIT(0),
@@ -579,13 +608,13 @@ static void test_functional_startup_and_shutdown(struct kunit *test)
 
 static void test_functional_shutdown_isolation(struct kunit *test)
 {
-	struct mock_msgbox_fixture *fix = create_mock_fixture(test);
+	struct mock_msgbox_fixture *fix = create_tx_line_fixture(test);
 	u32 en_idx = SUN55I_MSGBOX_READ_IRQ_ENABLE(0) / 4;
 	u32 both;
 
 	/* Enable both Channel 0 and Channel 1 on Port 0 */
-	sun55i_msgbox_chan_ops.startup(&fix->chans[0]);
-	sun55i_msgbox_chan_ops.startup(&fix->chans[1]);
+	mock_startup(test, &fix->chans[0]);
+	mock_startup(test, &fix->chans[1]);
 	both = SUN55I_MSGBOX_RD_IRQ_EN_BIT(0) | SUN55I_MSGBOX_RD_IRQ_EN_BIT(1);
 	KUNIT_EXPECT_EQ(test, mock_read_reg(fix, 0, en_idx) & both, both);
 
@@ -598,7 +627,7 @@ static void test_functional_shutdown_isolation(struct kunit *test)
 
 static void test_functional_startup_flushes_stale_fifo(struct kunit *test)
 {
-	struct mock_msgbox_fixture *fix = create_mock_fixture(test);
+	struct mock_msgbox_fixture *fix = create_tx_line_fixture(test);
 	u32 stat_idx = SUN55I_MSGBOX_READ_IRQ_STATUS(2) / 4;
 	u32 msg_stat_idx = SUN55I_MSGBOX_MSG_STATUS(2, 0) / 4;
 
@@ -607,7 +636,7 @@ static void test_functional_startup_flushes_stale_fifo(struct kunit *test)
 	mock_write_reg(fix, 0, SUN55I_MSGBOX_MSG_FIFO(2, 0) / 4, 0xDEADBEEF);
 	mock_write_reg(fix, 0, stat_idx, SUN55I_MSGBOX_RD_IRQ_PEND_BIT(0));
 
-	KUNIT_EXPECT_EQ(test, sun55i_msgbox_chan_ops.startup(&fix->chans[8]), 0);
+	mock_startup(test, &fix->chans[8]);
 
 	/* Drained and dropped, then the pending bit cleared */
 	KUNIT_EXPECT_EQ(test, mock_read_reg(fix, 0, msg_stat_idx), 0U);
@@ -618,10 +647,9 @@ static void test_functional_startup_flushes_stale_fifo(struct kunit *test)
 
 static void test_functional_startup_capped_at_fifo_max(struct kunit *test)
 {
-	struct mock_msgbox_fixture *fix = create_mock_fixture(test);
+	struct mock_msgbox_fixture *fix = create_tx_line_fixture(test);
 	u32 msg_stat_idx = SUN55I_MSGBOX_MSG_STATUS(2, 0) / 4;
 	u32 fifo_idx = SUN55I_MSGBOX_MSG_FIFO(2, 0) / 4;
-	int ret;
 
 	/* Hardware defect: MSG_STATUS always returns non-zero */
 	fix->fifo_stuck = true;
@@ -629,8 +657,7 @@ static void test_functional_startup_capped_at_fifo_max(struct kunit *test)
 	mock_write_reg(fix, 0, fifo_idx, 0xCAFEBABE);
 
 	/* Must stop after SUN55I_FIFO_MAX reads and return 0 */
-	ret = sun55i_msgbox_chan_ops.startup(&fix->chans[8]);
-	KUNIT_EXPECT_EQ(test, ret, 0);
+	mock_startup(test, &fix->chans[8]);
 	KUNIT_EXPECT_EQ(test, fix->fifo_reads, SUN55I_FIFO_MAX);
 }
 
@@ -1013,9 +1040,9 @@ static void test_held_message_dropped_after_timeout(struct kunit *test)
 
 static void test_functional_shutdown_drain_capped_at_fifo_max(struct kunit *test)
 {
-	struct mock_msgbox_fixture *fix = create_mock_fixture(test);
+	struct mock_msgbox_fixture *fix = create_tx_line_fixture(test);
 
-	KUNIT_EXPECT_EQ(test, sun55i_msgbox_chan_ops.startup(&fix->chans[8]), 0);
+	mock_startup(test, &fix->chans[8]);
 
 	/* Hardware defect: the count never drops. shutdown() must still return */
 	fix->fifo_stuck = true;
@@ -1084,32 +1111,6 @@ static void mock_tx_done_cb(struct mbox_client *cl, void *msg, int r)
 
 	tc->done++;
 	tc->last_r = r;
-}
-
-static struct mock_msgbox_fixture *create_tx_line_fixture(struct kunit *test)
-{
-	struct mock_msgbox_fixture *fix = create_tx_irq_fixture(test);
-	struct sun55i_tx_irq *rv = &fix->mbox.tx_irqs[2];
-
-	rv->irq = mock_alloc_irq(test);
-	rv->name = "sun55i-msgbox-test-rv";
-	return fix;
-}
-
-static void mock_shutdown_action(void *chan)
-{
-	sun55i_msgbox_chan_ops.shutdown(chan);
-}
-
-/*
- * startup(), with shutdown() as a cleanup action: the line is released before
- * its descriptor is freed even when an assertion ends the test early. A test
- * may shut the channel down itself; a second shutdown() is harmless.
- */
-static void mock_startup(struct kunit *test, struct mbox_chan *chan)
-{
-	KUNIT_ASSERT_EQ(test, sun55i_msgbox_chan_ops.startup(chan), 0);
-	KUNIT_ASSERT_EQ(test, kunit_add_action_or_reset(test, mock_shutdown_action, chan), 0);
 }
 
 /*
@@ -1340,7 +1341,7 @@ static struct kunit_case sun55i_msgbox_cases[] = {
 	KUNIT_CASE(test_irq_multi_port_burst_interleaved),
 	KUNIT_CASE(test_irq_fifo_drain_capped_at_max),
 	KUNIT_CASE(test_irq_channel_crosstalk_isolation),
-	/* TX done by write IRQ ("allwinner,tx-done-irq") */
+	/* TX done by write IRQ */
 	KUNIT_CASE(test_tx_irq_armed_after_every_send),
 	KUNIT_CASE(test_tx_irq_handler_disarms_and_acks),
 	KUNIT_CASE(test_tx_irq_handler_ignores_unarmed),
