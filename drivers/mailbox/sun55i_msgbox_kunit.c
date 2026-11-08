@@ -664,14 +664,14 @@ static void test_functional_startup_capped_at_fifo_max(struct kunit *test)
 
 static void test_functional_shutdown_flushes(struct kunit *test)
 {
-	struct mock_msgbox_fixture *fix = create_mock_fixture(test);
+	struct mock_msgbox_fixture *fix = create_tx_line_fixture(test);
 	u32 en_idx = SUN55I_MSGBOX_READ_IRQ_ENABLE(2) / 4;
 	u32 stat_idx = SUN55I_MSGBOX_READ_IRQ_STATUS(2) / 4;
 	u32 msg_stat_idx = SUN55I_MSGBOX_MSG_STATUS(2, 0) / 4;
 	u32 fifo_idx = SUN55I_MSGBOX_MSG_FIFO(2, 0) / 4;
 
-	/* First startup */
-	sun55i_msgbox_chan_ops.startup(&fix->chans[8]);
+	mock_startup(test, &fix->chans[8]);
+	KUNIT_ASSERT_NE(test, mock_read_reg(fix, 0, en_idx) & SUN55I_MSGBOX_RD_IRQ_EN_BIT(0), 0U);
 
 	/* Residual messages arriving before shutdown */
 	mock_write_reg(fix, 0, msg_stat_idx, 3);
