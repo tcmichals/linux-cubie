@@ -350,10 +350,10 @@ config SUN55I_MSGBOX_KUNIT_TEST
 	default KUNIT_ALL_TESTS
 	help
 	  KUnit tests for the Allwinner sun55i-msgbox driver. They run the
-	  channel operations (send, peek, startup, shutdown)
-	  and the interrupt handlers against mock register banks that model
-	  the 8-deep FIFOs and the read and write status registers, and
-	  request, share and free the TX-done line on a dummy interrupt.
+	  channel operations (send, peek, startup, shutdown) and the interrupt
+	  handlers against mock register banks that model the 8-deep FIFOs and
+	  the read and write status registers, and request, share and free the
+	  TX-done line on a dummy interrupt.
 	  Say Y here to run these tests during boot or via kunit.py.
 
 config SPRD_MBOX

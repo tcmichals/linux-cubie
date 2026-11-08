@@ -18,7 +18,6 @@
 #include <linux/elf.h>
 #include <linux/err.h>
 #include <linux/firmware.h>
-#include <linux/interrupt.h>
 #include <linux/io.h>
 #include <linux/limits.h>
 #include <linux/mailbox_client.h>

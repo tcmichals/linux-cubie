@@ -62,8 +62,8 @@ struct sun55i_msgbox {
 	void __iomem *regs[SUN55I_MAX_PROCESSORS];
 	/*
 	 * Protects the read-modify-writes of the IRQ enable registers, the
-	 * receive drain with its pending clear, and in timer mode the FIFO
-	 * check and write together with the held message.
+	 * receive drain with its pending clear, and the FIFO check and write
+	 * together with the held message.
 	 */
 	spinlock_t lock;
 	/* Host bank interrupt: messages received by this processor */

@@ -3,7 +3,6 @@
 #define _SUNXI_RPROC_H_
 
 #include <linux/bits.h>
-#include <linux/irqreturn.h>
 #include <linux/mailbox_client.h>
 #include <linux/types.h>
 #include <linux/workqueue.h>

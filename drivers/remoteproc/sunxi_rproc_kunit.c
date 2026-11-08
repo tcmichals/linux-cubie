@@ -32,8 +32,6 @@
 #include <linux/firmware.h>
 #include <linux/interrupt.h>
 #include <linux/io.h>
-#include <linux/irq.h>
-#include <linux/irqdesc.h>
 #include <linux/mailbox_controller.h>
 #include <linux/pm_domain.h>
 #include <linux/pm_runtime.h>

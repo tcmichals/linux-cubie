@@ -315,7 +315,7 @@ static int sun55i_msgbox_send_data(struct mbox_chan *chan, void *data)
 	 * Writing a full FIFO corrupts its count, so never do it. If full,
 	 * hold the message and arm the write IRQ to send it once a slot frees.
 	 * Returning 0 ensures the mailbox core tracks active_req and does not
-	 * leave dangling pointers in msg_data (V4-HELD).
+	 * leave dangling pointers in msg_data.
 	 */
 	full = sun55i_msgbox_tx_count(mbox, remote_id, remote_n, p) >= SUN55I_FIFO_MAX;
 	if (!full) {
@@ -328,7 +328,7 @@ static int sun55i_msgbox_send_data(struct mbox_chan *chan, void *data)
 
 	/*
 	 * Clear latched status and arm the write IRQ in the same lock section
-	 * as the FIFO write (V4-ARM), preventing a race with tx_irq on another CPU.
+	 * as the FIFO write, preventing a race with tx_irq on another CPU.
 	 */
 	__sun55i_msgbox_tx_irq_enable(mbox, remote_id, remote_n, p, true);
 
@@ -388,8 +388,8 @@ static void sun55i_msgbox_shutdown(struct mbox_chan *chan)
 
 	/*
 	 * Mark channel shutting down under lock so concurrent send_data()
-	 * cannot re-arm the write IRQ (V4-SHUT). Drop held messages and
-	 * disable both read and write IRQs.
+	 * cannot re-arm the write IRQ. Drop held messages and disable both
+	 * read and write IRQs.
 	 */
 	spin_lock_irqsave(&mbox->lock, flags);
 	set_bit(n, &mbox->shutting_down);
