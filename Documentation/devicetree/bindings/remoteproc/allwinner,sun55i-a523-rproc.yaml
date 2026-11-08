@@ -73,10 +73,12 @@ properties:
 
   memory-region:
     description:
-      The regions depend on the firmware, not on the SoC. Firmware that
-      uses virtio needs the vring and buffer pool. Firmware linked to run
-      only from the two SRAMs has no DRAM sections and needs no DRAM
-      region, and firmware without a trace buffer needs no trace region.
+      Reserved memory shared with the E906. Which regions are needed
+      depends on the firmware, not on the SoC; firmware that runs only from
+      the two SRAMs and does not use virtio needs none. When the property is
+      present, the first region is always the virtio vring and buffer pool,
+      a shared-dma-pool. A region for firmware code and data in DRAM, and
+      then a trace buffer, may follow in that order.
     minItems: 1
     items:
       - description: Virtio vring and buffer pool, a shared-dma-pool
