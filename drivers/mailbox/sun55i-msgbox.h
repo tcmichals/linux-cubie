@@ -38,7 +38,7 @@
 #define SUN55I_MSGBOX_WR_IRQ_THR_ONE_FREE	0
 #define SUN55I_MSGBOX_MSG_NUM_MASK		GENMASK(3, 0)
 
-/* Where host port local_n sends to: the remote bank and its port for us */
+/* Where host port local_n sends to: the remote bank and the port in it */
 struct sun55i_route {
 	u8 remote_id;
 	u8 remote_n;
@@ -47,7 +47,7 @@ struct sun55i_route {
 
 struct sun55i_msgbox;
 
-/* The interrupt line carrying our TX-done (write) IRQ for one route */
+/* The interrupt line carrying the host's TX-done (write) IRQ for one route */
 struct sun55i_tx_irq {
 	struct sun55i_msgbox *mbox;
 	int local_n;

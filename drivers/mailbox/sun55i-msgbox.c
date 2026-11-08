@@ -75,8 +75,9 @@ void sun55i_msgbox_chan_to_route(int chan_idx, int *local_n, int *p,
 EXPORT_SYMBOL_IF_KUNIT(sun55i_msgbox_chan_to_route);
 
 /*
- * Read what is queued for us on one channel (at most FIFO_MAX, so a runaway
- * remote cannot lock up the CPU) into @msgs, then clear its pending bit.
+ * Read what is queued for the host on one channel (at most FIFO_MAX, so a
+ * runaway remote cannot lock up the CPU) into @msgs, then clear its pending
+ * bit.
  * Returns the number of messages read.
  */
 static int sun55i_msgbox_rx_drain(struct sun55i_msgbox *mbox, int local_n, int p,
@@ -276,7 +277,7 @@ static void sun55i_msgbox_tx_irq_put(struct sun55i_msgbox *mbox, int local_n)
 	if (!--tx->users) {
 		free_irq(tx->irq, tx);
 	} else {
-		/* The line stays in use: let a running handler finish with us */
+		/* The line stays in use: wait for a running handler to finish */
 		synchronize_irq(tx->irq);
 	}
 	mutex_unlock(&mbox->tx_irq_lock);
@@ -509,8 +510,9 @@ static int sun55i_msgbox_probe(struct platform_device *pdev)
 		return dev_err_probe(dev, ret, "failed to deassert reset\n");
 
 	/*
-	 * Disable all read IRQs and clear status, and disarm our write IRQs in
-	 * the remote banks, which an earlier kernel or bind may have left on.
+	 * Disable all read IRQs and clear status, and disarm the host's write
+	 * IRQs in the remote banks, which an earlier kernel or bind may have
+	 * left on.
 	 */
 	for (local_n = 0; local_n < SUN55I_NUM_ROUTES; local_n++) {
 		const struct sun55i_route *route = &sun55i_msgbox_routes[local_n];
