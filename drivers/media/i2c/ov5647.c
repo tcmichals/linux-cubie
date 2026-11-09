@@ -277,6 +277,10 @@ static const struct reg_sequence ov5647_1080p30_10bpp[] = {
 	{0x3809, 0x80},
 	{0x380a, 0x04},
 	{0x380b, 0x38},
+	{0x380c, 0x09},
+	{0x380d, 0x70},
+	{0x380e, 0x04},
+	{0x380f, 0x87},
 	{0x3811, 0x04},
 	{0x3813, 0x02},
 	{0x3a09, 0x4b},
@@ -403,7 +407,7 @@ static const struct ov5647_mode ov5647_modes[] = {
 		.pixel_rate	= 87500000,
 		.link_freq_index = FREQ_INDEX_FULL,
 		.hts		= 2416,
-		.vts		= 0x450,
+		.vts		= 0x487,
 		.reg_list	= ov5647_1080p30_10bpp,
 		.num_regs	= ARRAY_SIZE(ov5647_1080p30_10bpp)
 	},
@@ -453,9 +457,9 @@ static const struct ov5647_mode ov5647_modes[] = {
 	},
 };
 
-/* Default sensor mode is 2x2 binned 640x480 SBGGR10_1X10. */
-#define OV5647_DEFAULT_MODE	(&ov5647_modes[3])
-#define OV5647_DEFAULT_FORMAT	(ov5647_modes[3].format)
+/* Default sensor mode is 1920x1080 30fps SBGGR10_1X10. */
+#define OV5647_DEFAULT_MODE	(&ov5647_modes[1])
+#define OV5647_DEFAULT_FORMAT	(ov5647_modes[1].format)
 
 static int ov5647_set_virtual_channel(struct v4l2_subdev *sd, int channel)
 {
@@ -1050,14 +1054,14 @@ static int ov5647_init_controls(struct ov5647 *sensor)
 	v4l2_ctrl_handler_init(&sensor->ctrls, 14);
 
 	v4l2_ctrl_new_std(&sensor->ctrls, &ov5647_ctrl_ops,
-			  V4L2_CID_AUTOGAIN, 0, 1, 1, 0);
+			  V4L2_CID_AUTOGAIN, 0, 1, 1, 1);
 
 	v4l2_ctrl_new_std(&sensor->ctrls, &ov5647_ctrl_ops,
-			  V4L2_CID_AUTO_WHITE_BALANCE, 0, 1, 1, 0);
+			  V4L2_CID_AUTO_WHITE_BALANCE, 0, 1, 1, 1);
 
 	v4l2_ctrl_new_std_menu(&sensor->ctrls, &ov5647_ctrl_ops,
 			       V4L2_CID_EXPOSURE_AUTO, V4L2_EXPOSURE_MANUAL,
-			       0, V4L2_EXPOSURE_MANUAL);
+			       0, V4L2_EXPOSURE_AUTO);
 
 	exposure_max = sensor->mode->vts - 4;
 	exposure_def = min(exposure_max, OV5647_EXPOSURE_DEFAULT);

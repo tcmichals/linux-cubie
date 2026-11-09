@@ -1022,9 +1022,9 @@ int sun6i_csi_capture_setup(struct sun6i_csi_device *csi_dev)
 	/* V4L2 Format */
 
 	format->type = queue->type;
-	pix_format->pixelformat = sun6i_csi_capture_formats[0].pixelformat;
-	pix_format->width = 1280;
-	pix_format->height = 720;
+	pix_format->pixelformat = V4L2_PIX_FMT_SGBRG10;
+	pix_format->width = 1920;
+	pix_format->height = 1080;
 	pix_format->field = V4L2_FIELD_NONE;
 
 	sun6i_csi_capture_format_prepare(format);

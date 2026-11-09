@@ -329,9 +329,9 @@ static int sun6i_mipi_csi2_init_state(struct v4l2_subdev *subdev,
 
 	mutex_lock(lock);
 
-	mbus_format->code = sun6i_mipi_csi2_formats[0].mbus_code;
-	mbus_format->width = 640;
-	mbus_format->height = 480;
+	mbus_format->code = MEDIA_BUS_FMT_SGBRG10_1X10;
+	mbus_format->width = 1920;
+	mbus_format->height = 1080;
 
 	sun6i_mipi_csi2_mbus_format_prepare(mbus_format);
 
@@ -516,6 +516,11 @@ static int sun6i_mipi_csi2_bridge_setup(struct sun6i_mipi_csi2_device *csi2_dev)
 	int ret;
 
 	mutex_init(&bridge->lock);
+
+	bridge->mbus_format.code = MEDIA_BUS_FMT_SGBRG10_1X10;
+	bridge->mbus_format.width = 1920;
+	bridge->mbus_format.height = 1080;
+	sun6i_mipi_csi2_mbus_format_prepare(&bridge->mbus_format);
 
 	/* V4L2 Subdev */
 
