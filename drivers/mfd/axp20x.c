@@ -23,6 +23,7 @@
 #include <linux/mfd/core.h>
 #include <linux/module.h>
 #include <linux/of.h>
+#include <linux/pm_runtime.h>
 #include <linux/property.h>
 #include <linux/reboot.h>
 #include <linux/regmap.h>
@@ -48,6 +49,7 @@ static const char * const axp20x_model_names[] = {
 	[AXP806_ID] = "AXP806",
 	[AXP809_ID] = "AXP809",
 	[AXP813_ID] = "AXP813",
+	[AXP8191_ID] = "AXP8191",
 	[AXP15060_ID] = "AXP15060",
 };
 
@@ -481,6 +483,15 @@ static const struct regmap_config axp15060_regmap_config = {
 	.volatile_table	= &axp15060_volatile_table,
 	.max_register	= AXP15060_IRQ2_STATE,
 	.cache_type	= REGCACHE_MAPLE,
+};
+
+static const struct regmap_config axp8191_regmap_config = {
+	.reg_bits	= 8,
+	.val_bits	= 8,
+	.max_register	= AXP8191_MAX_REG,
+	.fast_io	= true,
+	.use_raw_spinlock = true,
+	.cache_type	= REGCACHE_NONE,
 };
 
 #define INIT_REGMAP_IRQ(_variant, _irq, _off, _mask)			\
@@ -1248,6 +1259,10 @@ static int axp20x_power_off(struct sys_off_data *data)
 	case AXP313A_ID:
 		shutdown_reg = AXP313A_SHUTDOWN_CTRL;
 		break;
+	case AXP8191_ID:
+		regmap_set_bits(axp20x->regmap, AXP8191_OFF_CTRL, AXP20X_OFF);
+		mdelay(500);
+		return NOTIFY_DONE;
 	default:
 		shutdown_reg = AXP20X_OFF_CTRL;
 		break;
@@ -1256,6 +1271,18 @@ static int axp20x_power_off(struct sys_off_data *data)
 	regmap_write(axp20x->regmap, shutdown_reg, AXP20X_OFF);
 
 	/* Give capacitors etc. time to drain to avoid kernel panic msg. */
+	mdelay(500);
+
+	return NOTIFY_DONE;
+}
+
+static int axp8191_restart(struct sys_off_data *data)
+{
+	struct axp20x_dev *axp20x = data->cb_data;
+
+	regmap_write(axp20x->regmap, AXP8191_DATACACHE0, 0x01);
+	regmap_set_bits(axp20x->regmap, AXP8191_OFF_CTRL, AXP8191_RESTART);
+
 	mdelay(500);
 
 	return NOTIFY_DONE;
@@ -1368,6 +1395,11 @@ int axp20x_match_device(struct axp20x_dev *axp20x)
 		 */
 		axp20x->regmap_irq_chip = &axp803_regmap_irq_chip;
 		break;
+	case AXP8191_ID:
+		axp20x->nr_cells = 0;
+		axp20x->cells = NULL;
+		axp20x->regmap_cfg = &axp8191_regmap_config;
+		break;
 	case AXP15060_ID:
 		axp20x->nr_cells = ARRAY_SIZE(axp15060_cells);
 		axp20x->cells = axp15060_cells;
@@ -1385,7 +1417,7 @@ int axp20x_match_device(struct axp20x_dev *axp20x)
 	 * The default is the safe "regulator-only", as this works fine without
 	 * an interrupt specified.
 	 */
-	if (axp20x->irq <= 0) {
+	if (axp20x->irq <= 0 && axp20x->variant != AXP8191_ID) {
 		if (cells_no_irq) {
 			axp20x->nr_cells = nr_cells_no_irq;
 			axp20x->cells = cells_no_irq;
@@ -1449,17 +1481,33 @@ int axp20x_device_probe(struct axp20x_dev *axp20x)
 		}
 	}
 
-	ret = mfd_add_devices(axp20x->dev, PLATFORM_DEVID_NONE, axp20x->cells,
-			      axp20x->nr_cells, NULL, 0, NULL);
+	if (axp20x->nr_cells > 0) {
+		ret = mfd_add_devices(axp20x->dev, PLATFORM_DEVID_NONE, axp20x->cells,
+				      axp20x->nr_cells, NULL, 0, NULL);
 
-	if (ret) {
-		dev_err(axp20x->dev, "failed to add MFD devices: %d\n", ret);
-		regmap_del_irq_chip(axp20x->irq, axp20x->regmap_irqc);
-		return ret;
+		if (ret) {
+			dev_err(axp20x->dev, "failed to add MFD devices: %d\n", ret);
+			regmap_del_irq_chip(axp20x->irq, axp20x->regmap_irqc);
+			return ret;
+		}
 	}
 
 	if (axp20x->variant != AXP288_ID)
 		devm_register_power_off_handler(axp20x->dev, axp20x_power_off, axp20x);
+
+	if (axp20x->variant == AXP8191_ID) {
+		/*
+		 * Keep the parent I2C adapter runtime-active so atomic I2C
+		 * transfers succeed during SYS_OFF_MODE_RESTART / POWER_OFF.
+		 */
+		if (axp20x->dev->parent)
+			pm_runtime_get_sync(axp20x->dev->parent);
+
+		devm_register_sys_off_handler(axp20x->dev,
+					      SYS_OFF_MODE_RESTART,
+					      SYS_OFF_PRIO_HIGH,
+					      axp8191_restart, axp20x);
+	}
 
 	dev_info(axp20x->dev, "AXP20X driver loaded\n");
 

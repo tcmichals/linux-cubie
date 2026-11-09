@@ -25,6 +25,7 @@ enum axp20x_variants {
 	AXP806_ID,
 	AXP809_ID,
 	AXP813_ID,
+	AXP8191_ID,
 	AXP15060_ID,
 	NR_AXP20X_VARIANTS,
 };
@@ -250,6 +251,11 @@ enum axp20x_variants {
 #define AXP15060_PWR_WAKEUP_CTRL		0x31
 #define AXP15060_PWR_DISABLE_DOWN_SEQ		0x32
 #define AXP15060_PEK_KEY		0x36
+
+#define AXP8191_DATACACHE0		0x04
+#define AXP8191_OFF_CTRL		0x55
+#define AXP8191_RESTART			BIT(6)
+#define AXP8191_MAX_REG			0x91
 
 /* Interrupt */
 #define AXP152_IRQ1_EN			0x40

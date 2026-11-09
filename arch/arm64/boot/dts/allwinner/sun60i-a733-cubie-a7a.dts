@@ -611,6 +611,13 @@
 			#address-cells = <1>;
 			#size-cells = <0>;
 			status = "okay";
+
+			axp8191: pmic@36 {
+				compatible = "x-powers,axp8191";
+				reg = <0x36>;
+				system-power-controller;
+				status = "okay";
+			};
 		};
 
 		dphy1: phy@5810200 {

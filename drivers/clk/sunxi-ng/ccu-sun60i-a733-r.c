@@ -13,18 +13,22 @@
 #include "ccu_div.h"
 #include "ccu_mux.h"
 
-static const struct clk_parent_data r_ahb_parents[] = {
+static const struct clk_parent_data r_ahb_apb_parents[] = {
 	{ .fw_name = "hosc", .name = "osc24M" },
 	{ .fw_name = "losc", .name = "osc32k" },
+	{ .fw_name = "iosc", .name = "iosc" },
+	{ .fw_name = "pll-periph", .name = "pll-periph0-1x" },
 };
-static SUNXI_CCU_M_DATA_WITH_MUX(r_ahb_clk, "r-ahb", r_ahb_parents,
-				 0x0000, 0, 5, 24, 2, CLK_IS_CRITICAL);
+static SUNXI_CCU_M_DATA_WITH_MUX(r_ahb_clk, "r-ahb", r_ahb_apb_parents,
+				 0x0000, 0, 5, 24, 3, CLK_IS_CRITICAL);
 
 static const struct clk_hw *r_ahb_hws[] = {
 	&r_ahb_clk.common.hw
 };
-static SUNXI_CCU_M_HWS(r_apbs0_clk, "r-apbs0", r_ahb_hws, 0x000c, 0, 5, CLK_IS_CRITICAL);
-static SUNXI_CCU_M_HWS(r_apbs1_clk, "r-apbs1", r_ahb_hws, 0x0010, 0, 5, CLK_IS_CRITICAL);
+static SUNXI_CCU_M_DATA_WITH_MUX(r_apbs0_clk, "r-apbs0", r_ahb_apb_parents,
+				 0x000c, 0, 5, 24, 3, CLK_IS_CRITICAL);
+static SUNXI_CCU_M_DATA_WITH_MUX(r_apbs1_clk, "r-apbs1", r_ahb_apb_parents,
+				 0x0010, 0, 5, 24, 3, CLK_IS_CRITICAL);
 
 static const struct clk_hw *r_apbs0_hws[] = {
 	&r_apbs0_clk.common.hw
@@ -42,7 +46,7 @@ static SUNXI_CCU_GATE_HWS(r_bus_ppu_clk,   "r-bus-ppu",   r_apbs0_hws, 0x01ac, B
 static SUNXI_CCU_GATE_HWS(r_bus_rtc_clk,   "r-bus-rtc",   r_apbs0_hws, 0x020c, BIT(0), 0);
 static SUNXI_CCU_GATE_HWS(r_bus_cpucfg_clk,"r-bus-cpucfg",r_apbs0_hws, 0x022c, BIT(0), CLK_IS_CRITICAL);
 
-/* XuanTie E907 RISC-V co-processor clocks */
+/* XuanTie E902 RISC-V co-processor clocks */
 static const struct clk_parent_data riscv_24m_parents[] = {
 	{ .fw_name = "hosc", .name = "osc24M" },
 	{ .fw_name = "losc", .name = "osc32k" },
