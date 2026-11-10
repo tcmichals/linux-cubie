@@ -43,7 +43,10 @@ static const struct sunxi_rproc_att sun55i_rproc_att[] = {
 };
 
 static const struct sunxi_rproc_att sun60i_rproc_att[] = {
-	/* System SRAM A2 is seen 1:1 at 0x00040000 by both host and E902 */
+	/* E902 view of System SRAM A2 */
+	{ E902_SRAM_A2_DA,         SUN60I_SRAM_A2_SYS,     SUN60I_SRAM_A2_SIZE,     ATT_IOMEM },
+
+	/* Host address, used for vrings and buffers Linux allocates in SRAM */
 	{ SUN60I_SRAM_A2_SYS,      SUN60I_SRAM_A2_SYS,     SUN60I_SRAM_A2_SIZE,     ATT_IOMEM },
 };
 

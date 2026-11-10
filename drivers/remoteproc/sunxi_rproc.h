@@ -26,6 +26,11 @@
 #define SUN55I_SRAM_SPACE1_SIZE		0x00040000UL /* 256 KB */
 
 /* Allwinner A733 (sun60i) System Bus (Host Physical) Addresses & Window Sizes */
+/*
+ * E902 view of System SRAM A2: host 0x00040000 is seen at 0x40000000 (vendor BL31 copies the
+ * SCP image to host 0x00044000 and starts the core at 0x40004000; confirmed on the board).
+ */
+#define E902_SRAM_A2_DA			0x40000000UL
 #define SUN60I_SRAM_A2_SYS		0x00040000UL
 #define SUN60I_SRAM_A2_SIZE		0x00034000UL /* 208 KB (0x00040000 - 0x00073FFF) */
 
