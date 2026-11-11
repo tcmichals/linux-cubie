@@ -1641,6 +1641,8 @@ static const struct clk_hw *csi_parents[] = {
 	&pll_periph0_480M_clk.common.hw,
 	&pll_periph0_400M_clk.hw,
 	&pll_periph0_600M_clk.hw,
+	&pll_video0_4x_clk.common.hw,
+	&pll_video1_4x_clk.common.hw,
 };
 static SUNXI_CCU_M_HW_WITH_MUX_GATE(csi_clk, "csi", csi_parents, 0x1840,
 				    0, 5,	/* M */
