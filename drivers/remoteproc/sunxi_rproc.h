@@ -27,12 +27,15 @@
 
 /* Allwinner A733 (sun60i) System Bus (Host Physical) Addresses & Window Sizes */
 /*
- * E902 view of System SRAM A2: host 0x00040000 is seen at 0x40000000 (vendor BL31 copies the
- * SCP image to host 0x00044000 and starts the core at 0x40004000; confirmed on the board).
+ * System SRAM A2 (A733 User Manual, memory map): host 0x00040000 - 0x00073FFF is "16K+192K
+ * (The 16K is only used by CPUS.)", and the E902 sees it at 0x40000000 - 0x40033FFF. Only the
+ * 192 KB part is for firmware: the E902 does not run code from the 16 KB CPUS part (board,
+ * 2026-11-10), and the vendor BL31 loads its SCP at host 0x00044000 / E902 0x40004000.
+ * DRAM is 1:1 for the E902 from 0x40034000 to 0x7FFFFFFF, so carveouts need no entry.
  */
-#define E902_SRAM_A2_DA			0x40000000UL
-#define SUN60I_SRAM_A2_SYS		0x00040000UL
-#define SUN60I_SRAM_A2_SIZE		0x00034000UL /* 208 KB (0x00040000 - 0x00073FFF) */
+#define E902_SRAM_A2_DA			0x40004000UL
+#define SUN60I_SRAM_A2_SYS		0x00044000UL
+#define SUN60I_SRAM_A2_SIZE		0x00030000UL /* 192 KB (0x00044000 - 0x00073FFF) */
 
 /* Address Translation Table flags */
 #define ATT_IOMEM			BIT(30)
