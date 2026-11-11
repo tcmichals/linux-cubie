@@ -123,6 +123,29 @@ static SUNXI_CCU_GATE_HWS(ve_enc0_clk, "ve-enc0", ahb_hws, 0x0a80, BIT(31), 0);
 static SUNXI_CCU_GATE_HWS(bus_ve_enc0_clk, "bus-ve-enc0", ahb_hws, 0x0a8c, BIT(0), 0);
 
 /*
+ * Sensor master clocks (MCLK), CSI_MASTERn_CLK_REG 0x1800/0x1804/0x1808:
+ * clock = source / M / N, M [4:0] and N [12:8] both linear (A733 User
+ * Manual 4.1.6.241-243). Source 0 is SYS_CLK24M; the video PLLs (sources
+ * 1-6) are not described yet.
+ */
+static const struct clk_parent_data csi_master_parents[] = {
+	{ .fw_name = "hosc" },
+};
+
+static SUNXI_CCU_DUALDIV_MUX_GATE(csi_master0_clk, "csi-master0",
+				  csi_master_parents, 0x1800,
+				  0, 5,		/* M */
+				  8, 5,		/* N */
+				  24, 3,	/* mux */
+				  BIT(31), 0);
+static SUNXI_CCU_DUALDIV_MUX_GATE(csi_master1_clk, "csi-master1",
+				  csi_master_parents, 0x1804,
+				  0, 5, 8, 5, 24, 3, BIT(31), 0);
+static SUNXI_CCU_DUALDIV_MUX_GATE(csi_master2_clk, "csi-master2",
+				  csi_master_parents, 0x1808,
+				  0, 5, 8, 5, 24, 3, BIT(31), 0);
+
+/*
  * THS. The manual names SYS_CLK24M (mux 0) and DCXO (mux 1) as GPADC0_24M
  * parents; only SYS_CLK24M is described here.
  */
@@ -283,6 +306,9 @@ static struct ccu_common *sun60i_a733_ccu_clks[] = {
 	&mbus_csi_clk.common,
 	&csi_top_clk.common,
 	&bus_csi_clk.common,
+	&csi_master0_clk.common,
+	&csi_master1_clk.common,
+	&csi_master2_clk.common,
 	&ve_dec_clk.common,
 	&bus_ve_dec_clk.common,
 	&ve_enc0_clk.common,
@@ -291,7 +317,7 @@ static struct ccu_common *sun60i_a733_ccu_clks[] = {
 	&bus_ths0_clk.common,
 };
 
-#define CLK_NUMBER (CLK_GPADC0_24M + 1)
+#define CLK_NUMBER (CLK_CSI_MASTER2 + 1)
 static struct {
 	unsigned int num;
 	struct clk_hw *hws[CLK_NUMBER];
@@ -349,6 +375,9 @@ static struct {
 		[CLK_MBUS_CSI]		= &mbus_csi_clk.common.hw,
 		[CLK_CSI_TOP]		= &csi_top_clk.common.hw,
 		[CLK_BUS_CSI]		= &bus_csi_clk.common.hw,
+		[CLK_CSI_MASTER0]	= &csi_master0_clk.common.hw,
+		[CLK_CSI_MASTER1]	= &csi_master1_clk.common.hw,
+		[CLK_CSI_MASTER2]	= &csi_master2_clk.common.hw,
 		[CLK_VE]		= &ve_dec_clk.common.hw,
 		[CLK_BUS_VE]		= &bus_ve_dec_clk.common.hw,
 		[CLK_VE_ENC0]		= &ve_enc0_clk.common.hw,

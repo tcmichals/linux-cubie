@@ -99,5 +99,8 @@
 #define CLK_BUS_VE_ENC0		94
 #define CLK_BUS_THS0		95
 #define CLK_GPADC0_24M		96
+#define CLK_CSI_MASTER0		97
+#define CLK_CSI_MASTER1		98
+#define CLK_CSI_MASTER2		99
 
 #endif
