@@ -117,6 +117,20 @@ static SUNXI_CCU_GATE_HWS(mbus_csi_clk, "mbus-csi", ahb_hws, 0x05e4, BIT(8), 0);
 static SUNXI_CCU_GATE_HWS(csi_top_clk, "csi-top", ahb_hws, 0x1840, BIT(31), 0);
 static SUNXI_CCU_GATE_HWS(bus_csi_clk, "bus-csi", ahb_hws, 0x1844, BIT(0), 0);
 
+/*
+ * THS. The manual names SYS_CLK24M (mux 0) and DCXO (mux 1) as GPADC0_24M
+ * parents; only SYS_CLK24M is described here.
+ */
+static const struct clk_parent_data gpadc0_24m_parents[] = {
+	{ .fw_name = "hosc" },
+};
+static SUNXI_CCU_M_DATA_WITH_MUX_GATE(gpadc0_24m_clk, "gpadc0-24m",
+				      gpadc0_24m_parents, 0x0fc0,
+				      0, 5,	/* M */
+				      24, 3,	/* mux */
+				      BIT(31), 0);
+static SUNXI_CCU_GATE_DATA(bus_ths0_clk, "bus-ths0", osc24M, 0x0fe4, BIT(0), 0);
+
 static SUNXI_CCU_GATE_HWS(bus_usb0_clk, "bus-usb0", ahb_hws, 0x1304, BIT(4) | BIT(0), 0);
 static SUNXI_CCU_GATE_HWS(usb_ohci0_clk, "usb-ohci0", ahb_hws, 0x1304, BIT(4), 0);
 static SUNXI_CCU_GATE_HWS(bus_usb1_clk, "bus-usb1", ahb_hws, 0x130c, BIT(4) | BIT(0), 0);
@@ -264,9 +278,11 @@ static struct ccu_common *sun60i_a733_ccu_clks[] = {
 	&mbus_csi_clk.common,
 	&csi_top_clk.common,
 	&bus_csi_clk.common,
+	&gpadc0_24m_clk.common,
+	&bus_ths0_clk.common,
 };
 
-#define CLK_NUMBER (CLK_BUS_CSI + 1)
+#define CLK_NUMBER (CLK_GPADC0_24M + 1)
 static struct {
 	unsigned int num;
 	struct clk_hw *hws[CLK_NUMBER];
@@ -324,6 +340,8 @@ static struct {
 		[CLK_MBUS_CSI]		= &mbus_csi_clk.common.hw,
 		[CLK_CSI_TOP]		= &csi_top_clk.common.hw,
 		[CLK_BUS_CSI]		= &bus_csi_clk.common.hw,
+		[CLK_BUS_THS0]		= &bus_ths0_clk.common.hw,
+		[CLK_GPADC0_24M]	= &gpadc0_24m_clk.common.hw,
 	},
 };
 
@@ -360,6 +378,7 @@ static const struct ccu_reset_map sun60i_a733_ccu_resets[] = {
 	[RST_USB_PHY0]	= { 0x1300, BIT(30) },
 	[RST_USB_PHY1]	= { 0x1308, BIT(30) },
 	[RST_BUS_CSI]	= { 0x1844, BIT(16) },
+	[RST_BUS_THS0]	= { 0x0fe4, BIT(16) },
 };
 
 static const struct sunxi_ccu_desc sun60i_a733_ccu_desc = {
