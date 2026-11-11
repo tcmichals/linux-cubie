@@ -42,6 +42,13 @@ struct sun55i_route {
 	u8 remote_n;
 };
 
+/* Bank layout of one SoC: bank 0 ("reg" index 0) is the host's own bank */
+struct sun55i_msgbox_variant {
+	unsigned int num_banks;
+	unsigned int num_routes;
+	const struct sun55i_route *routes;
+};
+
 struct sun55i_msgbox;
 
 /* One per remote bank whose interrupt line carries our TX-done (write) IRQ */
@@ -56,6 +63,7 @@ struct sun55i_tx_irq {
 
 struct sun55i_msgbox {
 	struct mbox_controller controller;
+	const struct sun55i_msgbox_variant *variant;
 	void __iomem *regs[SUN55I_MAX_PROCESSORS];
 	/* Protects concurrent MMIO register access */
 	spinlock_t lock;
@@ -70,6 +78,7 @@ struct sun55i_msgbox {
 
 #if IS_ENABLED(CONFIG_KUNIT)
 extern const struct mbox_chan_ops sun55i_msgbox_chan_ops;
+extern const struct sun55i_msgbox_variant sun55i_a523_msgbox_variant;
 
 u32 sun55i_readl(void __iomem *addr);
 void sun55i_writel(u32 val, void __iomem *addr);

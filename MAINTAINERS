@@ -915,6 +915,7 @@ M:	Tim Michals <tcmichals@gmail.com>
 L:	linux-sunxi@lists.linux.dev
 S:	Maintained
 F:	Documentation/devicetree/bindings/mailbox/allwinner,sun55i-a523-msgbox.yaml
+F:	Documentation/devicetree/bindings/mailbox/allwinner,sun60i-a733-msgbox.yaml
 F:	drivers/mailbox/sun55i*
 
 ALLWINNER THERMAL DRIVER

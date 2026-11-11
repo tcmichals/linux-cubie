@@ -35,6 +35,29 @@ static const struct sun55i_route sun55i_msgbox_arm_routes[SUN55I_NUM_ROUTES] = {
 	[2] = { .remote_id = SUN55I_PROC_RV,   .remote_n = 2 },
 };
 
+VISIBLE_IF_KUNIT
+const struct sun55i_msgbox_variant sun55i_a523_msgbox_variant = {
+	.num_banks	= SUN55I_MAX_PROCESSORS,
+	.num_routes	= SUN55I_NUM_ROUTES,
+	.routes		= sun55i_msgbox_arm_routes,
+};
+EXPORT_SYMBOL_IF_KUNIT(sun55i_a523_msgbox_variant);
+
+/*
+ * A733: two banks, the host's (CPUX_MSGBOX) and the CPUS one (S_MBOX), where
+ * the XuanTie E902 runs. Each side reaches the other on its port 0:
+ *   local_n = 0 -> CPUS (bank 1, remote_n = 0) -> Channels 0..3
+ */
+static const struct sun55i_route sun60i_a733_msgbox_arm_routes[] = {
+	[0] = { .remote_id = 1, .remote_n = 0 },
+};
+
+static const struct sun55i_msgbox_variant sun60i_a733_msgbox_variant = {
+	.num_banks	= 2,
+	.num_routes	= ARRAY_SIZE(sun60i_a733_msgbox_arm_routes),
+	.routes		= sun60i_a733_msgbox_arm_routes,
+};
+
 static inline struct sun55i_msgbox *to_sun55i_msgbox(struct mbox_chan *chan)
 {
 	return chan->con_priv;
@@ -57,11 +80,11 @@ void sun55i_writel(u32 val, void __iomem *addr)
 }
 EXPORT_SYMBOL_IF_KUNIT(sun55i_writel);
 
-VISIBLE_IF_KUNIT
-void sun55i_chan_to_route(int chan_idx, int *local_n, int *p,
-			  int *remote_id, int *remote_n)
+static void sun55i_variant_chan_to_route(const struct sun55i_msgbox_variant *v,
+					 int chan_idx, int *local_n, int *p,
+					 int *remote_id, int *remote_n)
 {
-	if (chan_idx < 0 || chan_idx >= SUN55I_NUM_CHANS) {
+	if (chan_idx < 0 || chan_idx >= v->num_routes * SUN55I_CHANS_PER_PROC) {
 		*local_n = 0;
 		*p = 0;
 		*remote_id = 0;
@@ -70,10 +93,27 @@ void sun55i_chan_to_route(int chan_idx, int *local_n, int *p,
 	}
 	*local_n = chan_idx / SUN55I_CHANS_PER_PROC;
 	*p = chan_idx % SUN55I_CHANS_PER_PROC;
-	*remote_id = sun55i_msgbox_arm_routes[*local_n].remote_id;
-	*remote_n = sun55i_msgbox_arm_routes[*local_n].remote_n;
+	*remote_id = v->routes[*local_n].remote_id;
+	*remote_n = v->routes[*local_n].remote_n;
+}
+
+/* A523 layout; KUnit tests the routing through this */
+VISIBLE_IF_KUNIT
+void sun55i_chan_to_route(int chan_idx, int *local_n, int *p,
+			  int *remote_id, int *remote_n)
+{
+	sun55i_variant_chan_to_route(&sun55i_a523_msgbox_variant, chan_idx,
+				     local_n, p, remote_id, remote_n);
 }
 EXPORT_SYMBOL_IF_KUNIT(sun55i_chan_to_route);
+
+static void sun55i_msgbox_chan_to_route(struct sun55i_msgbox *mbox, int chan_idx,
+					int *local_n, int *p,
+					int *remote_id, int *remote_n)
+{
+	sun55i_variant_chan_to_route(mbox->variant, chan_idx, local_n, p,
+				     remote_id, remote_n);
+}
 
 VISIBLE_IF_KUNIT
 irqreturn_t sun55i_msgbox_irq(int irq, void *dev_id)
@@ -89,7 +129,7 @@ irqreturn_t sun55i_msgbox_irq(int irq, void *dev_id)
 	 */
 	spin_lock_irqsave(&mbox->lock, flags);
 
-	for (local_n = 0; local_n < SUN55I_NUM_ROUTES; local_n++) {
+	for (local_n = 0; local_n < mbox->variant->num_routes; local_n++) {
 		void __iomem *local_base = mbox->regs[0];
 		u32 en, stat, pending;
 
@@ -186,8 +226,8 @@ irqreturn_t sun55i_msgbox_tx_irq(int irq, void *dev_id)
 
 	spin_lock_irqsave(&mbox->lock, flags);
 
-	for (local_n = 0; local_n < SUN55I_NUM_ROUTES; local_n++) {
-		const struct sun55i_route *route = &sun55i_msgbox_arm_routes[local_n];
+	for (local_n = 0; local_n < mbox->variant->num_routes; local_n++) {
+		const struct sun55i_route *route = &mbox->variant->routes[local_n];
 		void __iomem *base = mbox->regs[route->remote_id];
 		u32 en, pend;
 
@@ -286,7 +326,7 @@ static int sun55i_msgbox_send_data(struct mbox_chan *chan, void *data)
 	if (data)
 		memcpy(&msg, data, sizeof(msg));
 
-	sun55i_chan_to_route(n, &local_n, &p, &remote_id, &remote_n);
+	sun55i_msgbox_chan_to_route(mbox, n, &local_n, &p, &remote_id, &remote_n);
 
 	/*
 	 * Writing a full FIFO corrupts its count, so never do it. In write IRQ
@@ -319,7 +359,7 @@ static int sun55i_msgbox_startup(struct mbox_chan *chan)
 	unsigned long flags;
 	u32 val;
 
-	sun55i_chan_to_route(n, &local_n, &p, &remote_id, &remote_n);
+	sun55i_msgbox_chan_to_route(mbox, n, &local_n, &p, &remote_id, &remote_n);
 
 	/* Drop stale receive data, then clear the pending bit */
 	sun55i_msgbox_rx_flush(mbox, local_n, p);
@@ -363,7 +403,7 @@ static void sun55i_msgbox_shutdown(struct mbox_chan *chan)
 	unsigned long flags;
 	u32 val;
 
-	sun55i_chan_to_route(n, &local_n, &p, &remote_id, &remote_n);
+	sun55i_msgbox_chan_to_route(mbox, n, &local_n, &p, &remote_id, &remote_n);
 
 	/* Disable receive IRQ */
 	spin_lock_irqsave(&mbox->lock, flags);
@@ -390,7 +430,7 @@ static bool sun55i_msgbox_last_tx_done(struct mbox_chan *chan)
 	int n = chan - mbox->controller.chans;
 	int local_n, p, remote_id, remote_n;
 
-	sun55i_chan_to_route(n, &local_n, &p, &remote_id, &remote_n);
+	sun55i_msgbox_chan_to_route(mbox, n, &local_n, &p, &remote_id, &remote_n);
 
 	/*
 	 * Timer mode only. A kick is a doorbell, the data is in shared memory:
@@ -407,7 +447,7 @@ static bool sun55i_msgbox_peek_data(struct mbox_chan *chan)
 	int local_n, p, remote_id, remote_n;
 	u32 count;
 
-	sun55i_chan_to_route(n, &local_n, &p, &remote_id, &remote_n);
+	sun55i_msgbox_chan_to_route(mbox, n, &local_n, &p, &remote_id, &remote_n);
 
 	count = sun55i_readl(mbox->regs[0] + SUNXI_MSGBOX_MSG_STATUS(local_n, p)) & MSG_NUM_MASK;
 	return count > 0;
@@ -435,23 +475,28 @@ static int sun55i_msgbox_probe(struct platform_device *pdev)
 	struct reset_control *rst;
 	struct mbox_chan *chans;
 	struct sun55i_msgbox *mbox;
-	int i, ret, irq, local_n;
+	int i, ret, irq, local_n, num_chans;
 
 	mbox = devm_kzalloc(dev, sizeof(*mbox), GFP_KERNEL);
 	if (!mbox)
 		return -ENOMEM;
 
+	mbox->variant = of_device_get_match_data(dev);
+	if (!mbox->variant)
+		return -EINVAL;
+	num_chans = mbox->variant->num_routes * SUN55I_CHANS_PER_PROC;
+
 	spin_lock_init(&mbox->lock);
 	mutex_init(&mbox->tx_irq_lock);
 
-	chans = devm_kcalloc(dev, SUN55I_NUM_CHANS, sizeof(*chans), GFP_KERNEL);
+	chans = devm_kcalloc(dev, num_chans, sizeof(*chans), GFP_KERNEL);
 	if (!chans)
 		return -ENOMEM;
 
-	for (i = 0; i < SUN55I_NUM_CHANS; i++)
+	for (i = 0; i < num_chans; i++)
 		chans[i].con_priv = mbox;
 
-	for (i = 0; i < SUN55I_MAX_PROCESSORS; i++) {
+	for (i = 0; i < mbox->variant->num_banks; i++) {
 		mbox->regs[i] = devm_platform_ioremap_resource(pdev, i);
 		if (IS_ERR(mbox->regs[i]))
 			return dev_err_probe(dev, PTR_ERR(mbox->regs[i]),
@@ -481,7 +526,7 @@ static int sun55i_msgbox_probe(struct platform_device *pdev)
 		return ret;
 
 	/* Disable all read IRQs and clear status */
-	for (local_n = 0; local_n < SUN55I_NUM_ROUTES; local_n++) {
+	for (local_n = 0; local_n < mbox->variant->num_routes; local_n++) {
 		sun55i_writel(0, mbox->regs[0] + SUNXI_MSGBOX_READ_IRQ_ENABLE(local_n));
 		sun55i_writel(U32_MAX, mbox->regs[0] + SUNXI_MSGBOX_READ_IRQ_STATUS(local_n));
 	}
@@ -502,7 +547,7 @@ static int sun55i_msgbox_probe(struct platform_device *pdev)
 	 * only while a channel to its bank is started.
 	 */
 	mbox->tx_done_irq = of_property_read_bool(dev->of_node, "allwinner,tx-done-irq");
-	for (i = 1; mbox->tx_done_irq && i < SUN55I_MAX_PROCESSORS; i++) {
+	for (i = 1; mbox->tx_done_irq && i < mbox->variant->num_banks; i++) {
 		struct sun55i_tx_irq *tx = &mbox->tx_irqs[i];
 
 		tx->mbox = mbox;
@@ -519,7 +564,7 @@ static int sun55i_msgbox_probe(struct platform_device *pdev)
 	mbox->controller.dev           = dev;
 	mbox->controller.ops           = &sun55i_msgbox_chan_ops;
 	mbox->controller.chans         = chans;
-	mbox->controller.num_chans     = SUN55I_NUM_CHANS;
+	mbox->controller.num_chans     = num_chans;
 	/* TX done by the write IRQ ("allwinner,tx-done-irq") or by polling */
 	mbox->controller.txdone_irq    = mbox->tx_done_irq;
 	mbox->controller.txdone_poll   = !mbox->tx_done_irq;
@@ -533,7 +578,8 @@ static int sun55i_msgbox_probe(struct platform_device *pdev)
 }
 
 static const struct of_device_id sun55i_msgbox_of_match[] = {
-	{ .compatible = "allwinner,sun55i-a523-msgbox" },
+	{ .compatible = "allwinner,sun55i-a523-msgbox", .data = &sun55i_a523_msgbox_variant },
+	{ .compatible = "allwinner,sun60i-a733-msgbox", .data = &sun60i_a733_msgbox_variant },
 	{ /* sentinel */ }
 };
 MODULE_DEVICE_TABLE(of, sun55i_msgbox_of_match);

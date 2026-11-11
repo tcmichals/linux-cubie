@@ -208,6 +208,7 @@ static struct mock_msgbox_fixture *create_mock_fixture(struct kunit *test)
 
 	spin_lock_init(&fix->mbox.lock);
 	fix->mbox.controller.chans = fix->chans;
+	fix->mbox.variant = &sun55i_a523_msgbox_variant;
 	fix->mbox.controller.num_chans = SUN55I_NUM_CHANS;
 
 	for (i = 0; i < SUN55I_MAX_PROCESSORS; i++)

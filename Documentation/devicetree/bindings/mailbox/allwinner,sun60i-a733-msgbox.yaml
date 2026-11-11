@@ -1,0 +1,121 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/mailbox/allwinner,sun60i-a733-msgbox.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Allwinner A733 Message Box
+
+maintainers:
+  - Tim Michals <tcmichals@gmail.com>
+
+description:
+  The message box on the Allwinner A733 (sun60i) links two processors - the
+  Cortex-A76/A55 host (CPUX_MSGBOX bank) and the CPUS core, a XuanTie E902
+  RISC-V core (S_MBOX bank). It works like the A523 message box with two
+  banks instead of four, each with 8-entry receive FIFOs, and each side
+  reaches the other on its port 0. The host exposes 4 channels, all to the
+  E902. Each bank has its own bus clock and reset, and the host needs both.
+
+properties:
+  compatible:
+    const: allwinner,sun60i-a733-msgbox
+
+  reg:
+    items:
+      - description: Host bank (CPUX_MSGBOX)
+      - description: CPUS (E902) bank (S_MBOX)
+
+  reg-names:
+    items:
+      - const: arm
+      - const: cpus
+
+  clocks:
+    items:
+      - description: Host bank bus clock
+      - description: CPUS bank bus clock
+
+  clock-names:
+    items:
+      - const: arm
+      - const: cpus
+
+  resets:
+    items:
+      - description: Host bank reset
+      - description: CPUS bank reset
+
+  reset-names:
+    items:
+      - const: arm
+      - const: cpus
+
+  interrupts:
+    minItems: 1
+    items:
+      - description: Host bank read interrupt, messages for the host
+      - description: CPUS bank write interrupt for the host
+
+  interrupt-names:
+    minItems: 1
+    items:
+      - const: arm
+      - const: cpus
+
+  allwinner,tx-done-irq:
+    type: boolean
+    description:
+      Signal TX done with the write interrupt of the CPUS bank instead of
+      polling. Needs both interrupts.
+
+  '#mbox-cells':
+    const: 1
+    description:
+      Host channel number. Channels 0-3 reach the CPUS (E902) core.
+
+required:
+  - compatible
+  - reg
+  - reg-names
+  - clocks
+  - clock-names
+  - resets
+  - reset-names
+  - interrupts
+  - '#mbox-cells'
+
+if:
+  required:
+    - allwinner,tx-done-irq
+then:
+  properties:
+    interrupts:
+      minItems: 2
+    interrupt-names:
+      minItems: 2
+
+additionalProperties: false
+
+examples:
+  - |
+    #include <dt-bindings/clock/sun60i-a733-ccu.h>
+    #include <dt-bindings/clock/sun60i-a733-r-ccu.h>
+    #include <dt-bindings/interrupt-controller/arm-gic.h>
+    #include <dt-bindings/reset/sun60i-a733-ccu.h>
+    #include <dt-bindings/reset/sun60i-a733-r-ccu.h>
+
+    mailbox@3004000 {
+        compatible = "allwinner,sun60i-a733-msgbox";
+        reg = <0x03004000 0x1000>,
+              <0x07094000 0x1000>;
+        reg-names = "arm", "cpus";
+        clocks = <&ccu CLK_MSGBOX0>, <&r_ccu CLK_R_MBOX>;
+        clock-names = "arm", "cpus";
+        resets = <&ccu RST_BUS_MSGBOX0>, <&r_ccu RST_BUS_R_MBOX>;
+        reset-names = "arm", "cpus";
+        interrupts = <GIC_SPI 0 IRQ_TYPE_LEVEL_HIGH>,
+                     <GIC_SPI 211 IRQ_TYPE_LEVEL_HIGH>;
+        interrupt-names = "arm", "cpus";
+        #mbox-cells = <1>;
+    };
