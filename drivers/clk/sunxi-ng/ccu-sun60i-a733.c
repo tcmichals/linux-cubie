@@ -2485,6 +2485,24 @@ static int sun60i_a733_ccu_probe(struct platform_device *pdev)
 		writel(readl(reg + kr->reg) | kr->key, reg + kr->reg);
 	}
 
+	/*
+	 * Cubie A7A: blocks that no DT node describes yet, set up as the
+	 * earlier local driver did. Each line goes when its consumer exists.
+	 */
+	/* GMAC0_PHY_CLK: PERI0_150M / 6 = 25 MHz, on (no PHY clock consumer) */
+	writel(BIT(31) | 5, reg + 0x1410);
+	/* MSI_LITE2 bus gate and AHB/MBUS resets: USB0/USB1 host bus path */
+	writel(readl(reg + 0x5a4) | BIT(17) | BIT(16) | BIT(0), reg + 0x5a4);
+	/* RES_DCAP_24M gate (CLK24M_GATE_EN_REG bit 3, reset value 1) */
+	writel(readl(reg + 0x1a00) | BIT(3), reg + 0x1a00);
+	/* SERDES_PHY_CFG clock gate and SERDES reset, used by USB2 */
+	writel(readl(reg + 0x13c0) | BIT(31), reg + 0x13c0);
+	writel(readl(reg + 0x13c4) | BIT(16), reg + 0x13c4);
+	/* CM_VE_ENC_CFG_REG module mode: not a clock, not modelled */
+	writel(readl(reg + 0x1b14) | BIT(0), reg + 0x1b14);
+	/* ISP_CLK: PERI0_600M / 1, on (no ISP node yet) */
+	writel(BIT(31) | (3 << 24), reg + 0x1860);
+
 	ret = devm_sunxi_ccu_probe(&pdev->dev, reg, &sun60i_a733_ccu_desc);
 	if (ret)
 		return ret;
