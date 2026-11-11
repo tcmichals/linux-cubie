@@ -473,12 +473,17 @@
 		};
 
 		msgbox: mailbox@3004000 {
-			compatible = "allwinner,sun55i-a523-msgbox", "allwinner,sun6i-a31-msgbox";
+			compatible = "allwinner,sun60i-a733-msgbox";
 			reg = <0x03004000 0x1000>,
 			      <0x07094000 0x1000>;
-			interrupts = <GIC_SPI 211 IRQ_TYPE_LEVEL_HIGH>;
-			clocks = <&ccu CLK_MSGBOX0>;
-			resets = <&ccu RST_BUS_MSGBOX0>;
+			reg-names = "arm", "cpus";
+			clocks = <&ccu CLK_MSGBOX0>, <&r_ccu CLK_R_MBOX>;
+			clock-names = "arm", "cpus";
+			resets = <&ccu RST_BUS_MSGBOX0>, <&r_ccu RST_BUS_R_MBOX>;
+			reset-names = "arm", "cpus";
+			interrupts = <GIC_SPI 0 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 211 IRQ_TYPE_LEVEL_HIGH>;
+			interrupt-names = "arm", "cpus";
 			#mbox-cells = <1>;
 			status = "okay";
 		};
