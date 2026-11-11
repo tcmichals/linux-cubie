@@ -99,20 +99,20 @@ additionalProperties: false
 
 examples:
   - |
-    #include <dt-bindings/clock/sun60i-a733-ccu.h>
-    #include <dt-bindings/clock/sun60i-a733-r-ccu.h>
+    #include <dt-bindings/clock/allwinner,sun60i-a733-ccu.h>
+    #include <dt-bindings/clock/allwinner,sun60i-a733-r-ccu.h>
     #include <dt-bindings/interrupt-controller/arm-gic.h>
-    #include <dt-bindings/reset/sun60i-a733-ccu.h>
-    #include <dt-bindings/reset/sun60i-a733-r-ccu.h>
+    #include <dt-bindings/reset/allwinner,sun60i-a733-ccu.h>
+    #include <dt-bindings/reset/allwinner,sun60i-a733-r-ccu.h>
 
     mailbox@3004000 {
         compatible = "allwinner,sun60i-a733-msgbox";
         reg = <0x03004000 0x1000>,
               <0x07094000 0x1000>;
         reg-names = "arm", "cpus";
-        clocks = <&ccu CLK_MSGBOX0>, <&r_ccu CLK_R_MBOX>;
+        clocks = <&ccu CLK_BUS_MSGBOX0>, <&r_ccu CLK_BUS_R_MSGBOX>;
         clock-names = "arm", "cpus";
-        resets = <&ccu RST_BUS_MSGBOX0>, <&r_ccu RST_BUS_R_MBOX>;
+        resets = <&ccu RST_BUS_MSGBOX>, <&r_ccu RST_BUS_R_MSGBOX>;
         reset-names = "arm", "cpus";
         interrupts = <GIC_SPI 0 IRQ_TYPE_LEVEL_HIGH>,
                      <GIC_SPI 211 IRQ_TYPE_LEVEL_HIGH>;
