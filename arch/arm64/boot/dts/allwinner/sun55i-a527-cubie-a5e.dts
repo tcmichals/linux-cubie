@@ -4,6 +4,7 @@
 /dts-v1/;
 
 #include "sun55i-a523.dtsi"
+#include "sun55i-a523-cpu-opp.dtsi"
 
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/leds/common.h>

@@ -1,0 +1,133 @@
+// SPDX-License-Identifier: (GPL-2.0-only OR MIT)
+/*
+ * CPU operating points for the Allwinner A523/A527/T527, frequency only.
+ *
+ * Both clusters run from the boot voltage of 0.90 V: no cpu-supply is set,
+ * so cpufreq-dt changes the clock only. Every OPP below is at or below a
+ * 0.90 V vendor OPP of each cluster on every speed bin (vendor BSP
+ * sun55iw3p1.dtsi: cluster0 936 MHz or 720 MHz, cluster1 1008 MHz or
+ * 720 MHz at 0.90 V), and 792 MHz is the rate U-Boot boots at.
+ *
+ * The DSU clock (cpu-dsu) is not scaled and stays at its boot rate.
+ */
+
+/ {
+	cpu0_opp_table: opp-table-cpu0 {
+		compatible = "operating-points-v2";
+		opp-shared;
+
+		opp-408000000 {
+			opp-hz = /bits/ 64 <408000000>;
+			opp-microvolt = <900000>;
+			clock-latency-ns = <244144>; /* 8 32k periods */
+		};
+
+		opp-600000000 {
+			opp-hz = /bits/ 64 <600000000>;
+			opp-microvolt = <900000>;
+			clock-latency-ns = <244144>; /* 8 32k periods */
+		};
+
+		opp-792000000 {
+			opp-hz = /bits/ 64 <792000000>;
+			opp-microvolt = <900000>;
+			clock-latency-ns = <244144>; /* 8 32k periods */
+		};
+	};
+
+	cpu4_opp_table: opp-table-cpu4 {
+		compatible = "operating-points-v2";
+		opp-shared;
+
+		opp-408000000 {
+			opp-hz = /bits/ 64 <408000000>;
+			opp-microvolt = <900000>;
+			clock-latency-ns = <244144>; /* 8 32k periods */
+		};
+
+		opp-600000000 {
+			opp-hz = /bits/ 64 <600000000>;
+			opp-microvolt = <900000>;
+			clock-latency-ns = <244144>; /* 8 32k periods */
+		};
+
+		opp-792000000 {
+			opp-hz = /bits/ 64 <792000000>;
+			opp-microvolt = <900000>;
+			clock-latency-ns = <244144>; /* 8 32k periods */
+		};
+	};
+};
+
+&cpu0 {
+	operating-points-v2 = <&cpu0_opp_table>;
+	dynamic-power-coefficient = <286>;
+};
+
+&cpu1 {
+	operating-points-v2 = <&cpu0_opp_table>;
+	dynamic-power-coefficient = <286>;
+};
+
+&cpu2 {
+	operating-points-v2 = <&cpu0_opp_table>;
+	dynamic-power-coefficient = <286>;
+};
+
+&cpu3 {
+	operating-points-v2 = <&cpu0_opp_table>;
+	dynamic-power-coefficient = <286>;
+};
+
+&cpu4 {
+	operating-points-v2 = <&cpu4_opp_table>;
+	dynamic-power-coefficient = <354>;
+};
+
+&cpu5 {
+	operating-points-v2 = <&cpu4_opp_table>;
+	dynamic-power-coefficient = <354>;
+};
+
+&cpu6 {
+	operating-points-v2 = <&cpu4_opp_table>;
+	dynamic-power-coefficient = <354>;
+};
+
+&cpu7 {
+	operating-points-v2 = <&cpu4_opp_table>;
+	dynamic-power-coefficient = <354>;
+};
+
+/* Throttle both clusters from the first passive trip (70 °C) of each zone. */
+&cpu0_thermal {
+	cooling-maps {
+		map1 {
+			trip = <&cpu0_threshold>;
+			cooling-device = <&cpu0 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+					 <&cpu1 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+					 <&cpu2 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+					 <&cpu3 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+					 <&cpu4 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+					 <&cpu5 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+					 <&cpu6 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+					 <&cpu7 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+		};
+	};
+};
+
+&cpu4_thermal {
+	cooling-maps {
+		map1 {
+			trip = <&cpu4_threshold>;
+			cooling-device = <&cpu0 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+					 <&cpu1 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+					 <&cpu2 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+					 <&cpu3 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+					 <&cpu4 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+					 <&cpu5 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+					 <&cpu6 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+					 <&cpu7 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+		};
+	};
+};
