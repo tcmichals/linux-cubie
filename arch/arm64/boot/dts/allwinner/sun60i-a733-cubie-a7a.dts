@@ -193,14 +193,14 @@
 		};
 
 		cpu6: cpu@600 {
-			compatible = "arm,cortex-a78";
+			compatible = "arm,cortex-a76";
 			device_type = "cpu";
 			reg = <0x0 0x600>;
 			enable-method = "psci";
 		};
 
 		cpu7: cpu@700 {
-			compatible = "arm,cortex-a78";
+			compatible = "arm,cortex-a76";
 			device_type = "cpu";
 			reg = <0x0 0x700>;
 			enable-method = "psci";
