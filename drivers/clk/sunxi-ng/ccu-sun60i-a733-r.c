@@ -42,6 +42,8 @@ static SUNXI_CCU_GATE_HWS(r_bus_uart1_clk, "r-bus-uart1", r_apbs1_hws, 0x018c, B
 static SUNXI_CCU_GATE_HWS(r_bus_twi0_clk,  "r-bus-twi0",  r_apbs1_hws, 0x019c, BIT(0), 0);
 static SUNXI_CCU_GATE_HWS(r_bus_twi1_clk,  "r-bus-twi1",  r_apbs1_hws, 0x019c, BIT(1), 0);
 static SUNXI_CCU_GATE_HWS(r_bus_twi2_clk,  "r-bus-twi2",  r_apbs1_hws, 0x019c, BIT(2), 0);
+/* S_MBOX_BGR_REG: the CPUS (E902) message box bank at 0x07094000 */
+static SUNXI_CCU_GATE_HWS(r_bus_mbox_clk,  "r-bus-mbox",  r_ahb_hws,   0x017c, BIT(0), 0);
 static SUNXI_CCU_GATE_HWS(r_bus_ppu_clk,   "r-bus-ppu",   r_apbs0_hws, 0x01ac, BIT(0), 0);
 static SUNXI_CCU_GATE_HWS(r_bus_rtc_clk,   "r-bus-rtc",   r_apbs0_hws, 0x020c, BIT(0), 0);
 static SUNXI_CCU_GATE_HWS(r_bus_cpucfg_clk,"r-bus-cpucfg",r_apbs0_hws, 0x022c, BIT(0), CLK_IS_CRITICAL);
@@ -66,6 +68,7 @@ static struct ccu_common *sun60i_a733_r_ccu_clks[] = {
 	&r_bus_twi0_clk.common,
 	&r_bus_twi1_clk.common,
 	&r_bus_twi2_clk.common,
+	&r_bus_mbox_clk.common,
 	&r_bus_ppu_clk.common,
 	&r_bus_rtc_clk.common,
 	&r_bus_cpucfg_clk.common,
@@ -89,6 +92,7 @@ static struct {
 		[CLK_R_TWI0]		= &r_bus_twi0_clk.common.hw,
 		[CLK_R_TWI1]		= &r_bus_twi1_clk.common.hw,
 		[CLK_R_TWI2]		= &r_bus_twi2_clk.common.hw,
+		[CLK_R_MBOX]		= &r_bus_mbox_clk.common.hw,
 		[CLK_R_PPU]		= &r_bus_ppu_clk.common.hw,
 		[CLK_RTC]		= &r_bus_rtc_clk.common.hw,
 		[CLK_R_CPUCFG]		= &r_bus_cpucfg_clk.common.hw,
