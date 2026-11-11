@@ -812,5 +812,18 @@
 				};
 			};
 		};
+
+		ve_enc: video-codec@1c10000 {
+			compatible = "allwinner,sun60i-a733-video-engine-enc";
+			reg = <0x01c10000 0x1000>;
+			interrupts = <GIC_SPI 48 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&ccu CLK_BUS_VE_ENC0>,
+				 <&ccu CLK_VE_ENC0>,
+				 <&ccu CLK_BUS_VE_ENC0>;
+			clock-names = "ahb", "mod", "ram";
+			resets = <&ccu RST_BUS_VE_ENC0>;
+			power-domains = <&pck600 PD_VE_ENC>;
+			status = "okay";
+		};
 	};
 };

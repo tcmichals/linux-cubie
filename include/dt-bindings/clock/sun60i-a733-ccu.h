@@ -94,7 +94,9 @@
 #define CLK_MBUS_CSI		89
 #define CLK_CSI_TOP		90
 #define CLK_BUS_CSI		91
-/* 92-94 are taken by the video engine clocks */
+#define CLK_BUS_VE		92
+#define CLK_VE_ENC0		93
+#define CLK_BUS_VE_ENC0		94
 #define CLK_BUS_THS0		95
 #define CLK_GPADC0_24M		96
 

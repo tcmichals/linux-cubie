@@ -49,7 +49,7 @@
 #define RST_BUS_GMAC0_AXI	44
 #define RST_BUS_GMAC1_AXI	45
 #define RST_BUS_CSI		46
-/* 47 is taken by the video engine encoder reset */
+#define RST_BUS_VE_ENC0		47
 #define RST_BUS_THS0		48
 
 #endif

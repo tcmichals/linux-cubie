@@ -117,6 +117,11 @@ static SUNXI_CCU_GATE_HWS(mbus_csi_clk, "mbus-csi", ahb_hws, 0x05e4, BIT(8), 0);
 static SUNXI_CCU_GATE_HWS(csi_top_clk, "csi-top", ahb_hws, 0x1840, BIT(31), 0);
 static SUNXI_CCU_GATE_HWS(bus_csi_clk, "bus-csi", ahb_hws, 0x1844, BIT(0), 0);
 
+static SUNXI_CCU_GATE_HWS(ve_dec_clk, "ve-dec", ahb_hws, 0x0a88, BIT(31), 0);
+static SUNXI_CCU_GATE_HWS(bus_ve_dec_clk, "bus-ve-dec", ahb_hws, 0x0a8c, BIT(2), 0);
+static SUNXI_CCU_GATE_HWS(ve_enc0_clk, "ve-enc0", ahb_hws, 0x0a80, BIT(31), 0);
+static SUNXI_CCU_GATE_HWS(bus_ve_enc0_clk, "bus-ve-enc0", ahb_hws, 0x0a8c, BIT(0), 0);
+
 /*
  * THS. The manual names SYS_CLK24M (mux 0) and DCXO (mux 1) as GPADC0_24M
  * parents; only SYS_CLK24M is described here.
@@ -278,6 +283,10 @@ static struct ccu_common *sun60i_a733_ccu_clks[] = {
 	&mbus_csi_clk.common,
 	&csi_top_clk.common,
 	&bus_csi_clk.common,
+	&ve_dec_clk.common,
+	&bus_ve_dec_clk.common,
+	&ve_enc0_clk.common,
+	&bus_ve_enc0_clk.common,
 	&gpadc0_24m_clk.common,
 	&bus_ths0_clk.common,
 };
@@ -340,6 +349,10 @@ static struct {
 		[CLK_MBUS_CSI]		= &mbus_csi_clk.common.hw,
 		[CLK_CSI_TOP]		= &csi_top_clk.common.hw,
 		[CLK_BUS_CSI]		= &bus_csi_clk.common.hw,
+		[CLK_VE]		= &ve_dec_clk.common.hw,
+		[CLK_BUS_VE]		= &bus_ve_dec_clk.common.hw,
+		[CLK_VE_ENC0]		= &ve_enc0_clk.common.hw,
+		[CLK_BUS_VE_ENC0]	= &bus_ve_enc0_clk.common.hw,
 		[CLK_BUS_THS0]		= &bus_ths0_clk.common.hw,
 		[CLK_GPADC0_24M]	= &gpadc0_24m_clk.common.hw,
 	},
@@ -378,6 +391,8 @@ static const struct ccu_reset_map sun60i_a733_ccu_resets[] = {
 	[RST_USB_PHY0]	= { 0x1300, BIT(30) },
 	[RST_USB_PHY1]	= { 0x1308, BIT(30) },
 	[RST_BUS_CSI]	= { 0x1844, BIT(16) },
+	[RST_BUS_VE]	= { 0x0a8c, BIT(18) },
+	[RST_BUS_VE_ENC0] = { 0x0a8c, BIT(16) },
 	[RST_BUS_THS0]	= { 0x0fe4, BIT(16) },
 };
 
@@ -435,6 +450,16 @@ static int sun60i_a733_ccu_probe(struct platform_device *pdev)
 
 	/* Configure and enable ISP clock at 600 MHz from PERI0_600M */
 	writel(BIT(31) | (3 << 24) | 0x0, reg + 0x1860);
+
+	/* Configure VE_ENC0 and VE_DEC parent to PERI0_600M (/2 = 300 MHz), gate off until runtime resume */
+	writel((3 << 24) | 0x1, reg + 0x0a80);
+	writel((3 << 24) | 0x1, reg + 0x0a88);
+
+	/* Enable VE_ENC module mode in CM config and AHB/MBUS master clock gates */
+	writel(readl(reg + 0x1b14) | BIT(0), reg + 0x1b14);
+	writel(readl(reg + 0x05c0) | BIT(1), reg + 0x05c0);
+	writel(readl(reg + 0x05e4) | BIT(1), reg + 0x05e4);
+	writel(readl(reg + 0x05e0) | BIT(12), reg + 0x05e0);
 
 
 	return devm_sunxi_ccu_probe(&pdev->dev, reg, &sun60i_a733_ccu_desc);
