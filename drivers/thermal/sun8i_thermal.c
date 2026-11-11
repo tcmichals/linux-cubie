@@ -25,7 +25,7 @@
 
 #include "thermal_hwmon.h"
 
-#define MAX_SENSOR_NUM	4
+#define MAX_SENSOR_NUM	5
 
 #define FT_TEMP_MASK				GENMASK(11, 0)
 #define TEMP_CALIB_MASK				GENMASK(11, 0)
@@ -58,6 +58,13 @@
 #define SUN50I_THS_FILTER_TYPE(x)		(GENMASK(1, 0) & (x))
 #define SUN50I_H6_THS_PC_TEMP_PERIOD(x)		((GENMASK(19, 0) & (x)) << 12)
 #define SUN50I_H6_THS_DATA_IRQ_STS(x)		BIT(x)
+
+/* A733: two-segment conversion, register code to millidegree Celsius */
+#define SUN60I_A733_DELIMITER			1769
+#define SUN60I_A733_OFFSET_LOW			2822
+#define SUN60I_A733_SCALE_LOW			62
+#define SUN60I_A733_OFFSET_HIGH			2835
+#define SUN60I_A733_SCALE_HIGH			59
 
 struct tsensor {
 	struct ths_device		*tmdev;
@@ -112,6 +119,19 @@ static int sun50i_h5_calc_temp(struct ths_device *tmdev,
 		return -1452 * reg / 10 + 259000;
 	else
 		return -1590 * reg / 10 + 276000;
+}
+
+/*
+ * The code falls as the temperature rises: codes above the delimiter are
+ * the low-temperature segment.
+ */
+static int sun60i_a733_calc_temp(struct ths_device *tmdev,
+				 int id, int reg)
+{
+	if (reg > SUN60I_A733_DELIMITER)
+		return SUN60I_A733_SCALE_LOW * (SUN60I_A733_OFFSET_LOW - reg);
+	else
+		return SUN60I_A733_SCALE_HIGH * (SUN60I_A733_OFFSET_HIGH - reg);
 }
 
 static int sun8i_ths_get_temp(struct thermal_zone_device *tz, int *temp)
@@ -285,6 +305,65 @@ static int sun50i_h6_ths_calibrate(struct ths_device *tmdev,
 			 * still work without calibration, although the data
 			 * won't be so accurate.
 			 */
+			dev_warn(dev, "sensor%d is not calibrated.\n", i);
+			continue;
+		}
+
+		offset = (i % 2) * 16;
+		regmap_update_bits(tmdev->regmap,
+				   SUN50I_H6_THS_TEMP_CALIB + (i / 2 * 4),
+				   TEMP_CALIB_MASK << offset,
+				   cdata << offset);
+	}
+
+	return 0;
+}
+
+/*
+ * A733 efuse layout, SID 0x44-0x4f (caldata[0..5]), 12-bit fields:
+ *
+ * 0          12         24         36         48         60         72
+ * +----------+----------+----------+----------+----------+----------+
+ * |   temp   | sensor0  | sensor1  | sensor2  | sensor3  | sensor4  |
+ * +----------+----------+----------+----------+----------+----------+
+ *
+ * The factory temperature is in 0.1 degree Celsius. Sensor 0 measures the
+ * big cores, 1 the DRAM controller, 2 the NPU, 3 the little cores, 4 the GPU.
+ */
+static int sun60i_a733_efuse_field(const u16 *caldata, int index)
+{
+	int bit = 12 * index;
+	u32 word = caldata[bit / 16] | (caldata[bit / 16 + 1] << 16);
+
+	return (word >> (bit % 16)) & TEMP_CALIB_MASK;
+}
+
+static int sun60i_a733_ths_calibrate(struct ths_device *tmdev,
+				     u16 *caldata, int callen)
+{
+	struct device *dev = tmdev->dev;
+	int i, ft_temp;
+
+	if (callen < 12)
+		return -EINVAL;
+
+	ft_temp = sun60i_a733_efuse_field(caldata, 0) * 100;
+	if (!ft_temp)
+		return -EINVAL;
+
+	for (i = 0; i < tmdev->chip->sensor_num; i++) {
+		int sensor_reg, sensor_temp, cdata, offset;
+
+		sensor_reg = sun60i_a733_efuse_field(caldata, i + 1);
+		sensor_temp = tmdev->chip->calc_temp(tmdev, i, sensor_reg);
+
+		/*
+		 * The register offset that moves the factory reading to the
+		 * factory temperature, at the low-temperature slope.
+		 */
+		cdata = CALIBRATE_DEFAULT -
+			((sensor_temp - ft_temp) / SUN60I_A733_SCALE_LOW);
+		if (cdata & ~TEMP_CALIB_MASK) {
 			dev_warn(dev, "sensor%d is not calibrated.\n", i);
 			continue;
 		}
@@ -709,6 +788,17 @@ static const struct ths_thermal_chip sun50i_h616_ths = {
 	.calc_temp = sun8i_ths_calc_temp,
 };
 
+static const struct ths_thermal_chip sun60i_a733_ths = {
+	.sensor_num = 5,
+	.has_mod_clk = true,
+	.has_bus_clk_reset = true,
+	.temp_data_base = SUN50I_H6_THS_TEMP_DATA,
+	.calibrate = sun60i_a733_ths_calibrate,
+	.init = sun50i_h6_thermal_init,
+	.irq_ack = sun50i_h6_irq_ack,
+	.calc_temp = sun60i_a733_calc_temp,
+};
+
 static const struct of_device_id of_ths_match[] = {
 	{ .compatible = "allwinner,sun8i-a83t-ths", .data = &sun8i_a83t_ths },
 	{ .compatible = "allwinner,sun8i-h3-ths", .data = &sun8i_h3_ths },
@@ -719,6 +809,7 @@ static const struct of_device_id of_ths_match[] = {
 	{ .compatible = "allwinner,sun50i-h6-ths", .data = &sun50i_h6_ths },
 	{ .compatible = "allwinner,sun20i-d1-ths", .data = &sun20i_d1_ths },
 	{ .compatible = "allwinner,sun50i-h616-ths", .data = &sun50i_h616_ths },
+	{ .compatible = "allwinner,sun60i-a733-ths", .data = &sun60i_a733_ths },
 	{ /* sentinel */ },
 };
 MODULE_DEVICE_TABLE(of, of_ths_match);
