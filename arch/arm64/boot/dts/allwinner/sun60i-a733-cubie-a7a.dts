@@ -252,6 +252,96 @@
 		dma-noncoherent;
 	};
 
+	thermal-zones {
+		cpu-big-thermal {
+			polling-delay-passive = <100>;
+			polling-delay = <1000>;
+			thermal-sensors = <&ths 0>;
+
+			trips {
+				cpub_hot: trip-hot-90 {
+					temperature = <90000>;
+					hysteresis = <2000>;
+					type = "hot";
+				};
+
+				cpub_crit: trip-critical-110 {
+					temperature = <110000>;
+					hysteresis = <2000>;
+					type = "critical";
+				};
+			};
+		};
+
+		ddr-thermal {
+			polling-delay-passive = <100>;
+			polling-delay = <1000>;
+			thermal-sensors = <&ths 1>;
+
+			trips {
+				ddr_crit: trip-critical-110 {
+					temperature = <110000>;
+					hysteresis = <2000>;
+					type = "critical";
+				};
+			};
+		};
+
+		npu-thermal {
+			polling-delay-passive = <100>;
+			polling-delay = <1000>;
+			thermal-sensors = <&ths 2>;
+
+			trips {
+				npu_crit: trip-critical-110 {
+					temperature = <110000>;
+					hysteresis = <2000>;
+					type = "critical";
+				};
+			};
+		};
+
+		cpu-little-thermal {
+			polling-delay-passive = <100>;
+			polling-delay = <1000>;
+			thermal-sensors = <&ths 3>;
+
+			trips {
+				cpul_hot: trip-hot-90 {
+					temperature = <90000>;
+					hysteresis = <2000>;
+					type = "hot";
+				};
+
+				cpul_crit: trip-critical-110 {
+					temperature = <110000>;
+					hysteresis = <2000>;
+					type = "critical";
+				};
+			};
+		};
+
+		gpu-thermal {
+			polling-delay-passive = <100>;
+			polling-delay = <1000>;
+			thermal-sensors = <&ths 4>;
+
+			trips {
+				gpu_hot: trip-hot-90 {
+					temperature = <90000>;
+					hysteresis = <2000>;
+					type = "hot";
+				};
+
+				gpu_crit: trip-critical-110 {
+					temperature = <110000>;
+					hysteresis = <2000>;
+					type = "critical";
+				};
+			};
+		};
+	};
+
 	soc {
 		compatible = "simple-bus";
 		#address-cells = <1>;
@@ -361,6 +451,18 @@
 			status = "okay";
 		};
 
+		ths: thermal-sensor@2522000 {
+			compatible = "allwinner,sun60i-a733-ths";
+			reg = <0x02522000 0x400>;
+			interrupts = <GIC_SPI 39 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&ccu CLK_BUS_THS0>, <&ccu CLK_GPADC0_24M>;
+			clock-names = "bus", "mod";
+			resets = <&ccu RST_BUS_THS0>;
+			nvmem-cells = <&ths_calibration>;
+			nvmem-cell-names = "calibration";
+			#thermal-sensor-cells = <1>;
+		};
+
 		syscon: syscon@3000000 {
 			compatible = "allwinner,sun55i-a523-system-control",
 				     "allwinner,sun50i-a64-system-control";
@@ -379,6 +481,18 @@
 			resets = <&ccu RST_BUS_MSGBOX0>;
 			#mbox-cells = <1>;
 			status = "okay";
+		};
+
+		sid: efuse@3006000 {
+			compatible = "allwinner,sun60i-a733-sid",
+				     "allwinner,sun50i-a64-sid";
+			reg = <0x03006000 0x1000>;
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			ths_calibration: thermal-sensor-calibration@44 {
+				reg = <0x44 0xc>;
+			};
 		};
 
 		mmc0: mmc@4020000 {
