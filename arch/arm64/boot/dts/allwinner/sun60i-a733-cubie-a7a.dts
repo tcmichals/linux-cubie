@@ -223,10 +223,15 @@
 	};
 
 	clocks {
+		/*
+		 * The A7A crystal (DCXO) is 26 MHz (schematic "DCXO-SYS 26MHz";
+		 * PLL_REF reads N=96, M=104, i.e. 26 MHz -> 24 MHz). The CCU
+		 * derives PLL_REF from this clock, so it must be the raw crystal.
+		 */
 		osc24M: osc24M {
 			#clock-cells = <0>;
 			compatible = "fixed-clock";
-			clock-frequency = <24000000>;
+			clock-frequency = <26000000>;
 			clock-output-names = "hosc";
 		};
 
