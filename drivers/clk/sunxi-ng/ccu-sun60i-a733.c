@@ -544,191 +544,88 @@ static SUNXI_CCU_GATE_HWS(mbus_iommu1_sys_clk, "mbus-iommu1-sys", mbus_hws, 0x5b
 static SUNXI_CCU_GATE_HWS(apb_iommu1_sys_clk, "apb-iommu1-sys", apb0_hws, 0x5b4, BIT(1), 0);
 static SUNXI_CCU_GATE_HWS(ahb_iommu1_sys_clk, "ahb-iommu1-sys", ahb_hws, 0x5b4, BIT(2), 0);
 
-/*
- * Some bits of the AHB and MBUS master gate registers are "key field" bits
- * (vendor BSP ccu-sun60iw2.c: AHB_MASTER_KEY_VALUE, MBUS_MASTER_KEY_VALUE,
- * MBUS_GATE_KEY_VALUE). They always read back as 0, so a plain
- * read-modify-write of any gate in the register clears all of them: on the
- * Cubie A7A, MBUS_GATE_EN_REG reads 0x0000182d after 0x0007ffff is written
- * (bits 1, 8, 9 and 18 read 0). Keep the state of the key field bits in
- * software and write it back on every update.
- */
-struct sun60i_a733_key_reg {
-	u16	reg;
-	u32	key;
-	u32	state;
-};
-
-static struct sun60i_a733_key_reg sun60i_a733_key_regs[] = {
-	{ .reg = 0x5c0, .key = 0x010000ff },	/* AHB_MAT_CLK_GATING_REG */
-	{ .reg = 0x5e0, .key = 0x41055800 },	/* MBUS_MAT_CLK_GATING_REG */
-	{ .reg = 0x5e4, .key = 0x00040302 },	/* MBUS_GATE_EN_REG */
-};
-
-static struct sun60i_a733_key_reg *sun60i_a733_find_key_reg(u16 reg)
-{
-	int i;
-
-	for (i = 0; i < ARRAY_SIZE(sun60i_a733_key_regs); i++)
-		if (sun60i_a733_key_regs[i].reg == reg)
-			return &sun60i_a733_key_regs[i];
-
-	return NULL;
-}
-
-static void sun60i_a733_keyed_gate_set(struct clk_hw *hw, bool on)
-{
-	struct ccu_gate *cg = hw_to_ccu_gate(hw);
-	struct ccu_common *common = &cg->common;
-	struct sun60i_a733_key_reg *kr = sun60i_a733_find_key_reg(common->reg);
-	unsigned long flags;
-	u32 reg;
-
-	if (WARN_ON(!kr))
-		return;
-
-	spin_lock_irqsave(common->lock, flags);
-
-	if (on)
-		kr->state |= cg->enable & kr->key;
-	else
-		kr->state &= ~cg->enable;
-
-	reg = readl(common->base + common->reg) & ~kr->key;
-	if (on)
-		reg |= cg->enable;
-	else
-		reg &= ~cg->enable;
-	writel(reg | kr->state, common->base + common->reg);
-
-	spin_unlock_irqrestore(common->lock, flags);
-}
-
-static int sun60i_a733_keyed_gate_enable(struct clk_hw *hw)
-{
-	sun60i_a733_keyed_gate_set(hw, true);
-
-	return 0;
-}
-
-static void sun60i_a733_keyed_gate_disable(struct clk_hw *hw)
-{
-	sun60i_a733_keyed_gate_set(hw, false);
-}
-
-static int sun60i_a733_keyed_gate_is_enabled(struct clk_hw *hw)
-{
-	struct ccu_gate *cg = hw_to_ccu_gate(hw);
-	struct ccu_common *common = &cg->common;
-	struct sun60i_a733_key_reg *kr = sun60i_a733_find_key_reg(common->reg);
-
-	if (kr && (cg->enable & kr->key))
-		return !!(kr->state & cg->enable);
-
-	return !!(readl(common->base + common->reg) & cg->enable);
-}
-
-static const struct clk_ops sun60i_a733_keyed_gate_ops = {
-	.enable		= sun60i_a733_keyed_gate_enable,
-	.disable	= sun60i_a733_keyed_gate_disable,
-	.is_enabled	= sun60i_a733_keyed_gate_is_enabled,
-};
-
-#define SUN60I_A733_KEYED_GATE_HWS(_struct, _name, _parent, _reg,	\
-				   _gate, _flags)			\
-	struct ccu_gate _struct = {					\
-		.enable	= _gate,					\
-		.common	= {						\
-			.reg		= _reg,				\
-			.hw.init	= CLK_HW_INIT_HWS(_name,	\
-							  _parent,	\
-							  &sun60i_a733_keyed_gate_ops, \
-							  _flags),	\
-		}							\
-	}
-
-static SUN60I_A733_KEYED_GATE_HWS(ahb_ve_dec_clk, "ahb-ve-dec", ahb_hws,
-				   0x5c0, BIT(0), 0);
-static SUN60I_A733_KEYED_GATE_HWS(ahb_ve_enc_clk, "ahb-ve-enc", ahb_hws,
-				   0x5c0, BIT(1), 0);
-static SUN60I_A733_KEYED_GATE_HWS(ahb_vid_in_clk, "ahb-vid-in", ahb_hws,
-				   0x5c0, BIT(2), 0);
-static SUN60I_A733_KEYED_GATE_HWS(ahb_vid_cout0_clk, "ahb-vid-cout0", ahb_hws,
-				   0x5c0, BIT(3), 0);
-static SUN60I_A733_KEYED_GATE_HWS(ahb_vid_cout1_clk, "ahb-vid-cout1", ahb_hws,
-				   0x5c0, BIT(4), 0);
-static SUN60I_A733_KEYED_GATE_HWS(ahb_de_clk, "ahb-de", ahb_hws,
-				   0x5c0, BIT(5), 0);
-static SUN60I_A733_KEYED_GATE_HWS(ahb_npu_clk, "ahb-npu", ahb_hws,
-				   0x5c0, BIT(6), 0);
-static SUN60I_A733_KEYED_GATE_HWS(ahb_gpu0_clk, "ahb-gpu0", ahb_hws,
-				   0x5c0, BIT(7), 0);
-static SUN60I_A733_KEYED_GATE_HWS(ahb_serdes_clk, "ahb-serdes", ahb_hws,
-				   0x5c0, BIT(8), 0);
-static SUN60I_A733_KEYED_GATE_HWS(ahb_usb_sys_clk, "ahb-usb-sys", ahb_hws,
-				   0x5c0, BIT(9), 0);
-static SUN60I_A733_KEYED_GATE_HWS(ahb_msi_lite0_clk, "ahb-msi-lite0", ahb_hws,
-				   0x5c0, BIT(16), 0);
+static SUNXI_CCU_GATE_HWS(ahb_ve_dec_clk, "ahb-ve-dec", ahb_hws,
+			  0x5c0, BIT(0), 0);
+static SUNXI_CCU_GATE_HWS(ahb_ve_enc_clk, "ahb-ve-enc", ahb_hws,
+			  0x5c0, BIT(1), 0);
+static SUNXI_CCU_GATE_HWS(ahb_vid_in_clk, "ahb-vid-in", ahb_hws,
+			  0x5c0, BIT(2), 0);
+static SUNXI_CCU_GATE_HWS(ahb_vid_cout0_clk, "ahb-vid-cout0", ahb_hws,
+			  0x5c0, BIT(3), 0);
+static SUNXI_CCU_GATE_HWS(ahb_vid_cout1_clk, "ahb-vid-cout1", ahb_hws,
+			  0x5c0, BIT(4), 0);
+static SUNXI_CCU_GATE_HWS(ahb_de_clk, "ahb-de", ahb_hws,
+			  0x5c0, BIT(5), 0);
+static SUNXI_CCU_GATE_HWS(ahb_npu_clk, "ahb-npu", ahb_hws,
+			  0x5c0, BIT(6), 0);
+static SUNXI_CCU_GATE_HWS(ahb_gpu0_clk, "ahb-gpu0", ahb_hws,
+			  0x5c0, BIT(7), 0);
+static SUNXI_CCU_GATE_HWS(ahb_serdes_clk, "ahb-serdes", ahb_hws,
+			  0x5c0, BIT(8), 0);
+static SUNXI_CCU_GATE_HWS(ahb_usb_sys_clk, "ahb-usb-sys", ahb_hws,
+			  0x5c0, BIT(9), 0);
+static SUNXI_CCU_GATE_HWS(ahb_msi_lite0_clk, "ahb-msi-lite0", ahb_hws,
+			  0x5c0, BIT(16), 0);
 
 /* This gate controls access to the storage controller MMIO registers. */
-static SUN60I_A733_KEYED_GATE_HWS(ahb_store_clk, "ahb-store", ahb_hws,
-				   0x5c0, BIT(24), 0);
+static SUNXI_CCU_GATE_HWS(ahb_store_clk, "ahb-store", ahb_hws,
+			  0x5c0, BIT(24), 0);
 static const struct clk_hw *ahb_store_hws[] = { &ahb_store_clk.common.hw };
 
 /* Keep enabled for access to the CPUS domain registers. */
-static SUN60I_A733_KEYED_GATE_HWS(ahb_cpus_clk, "ahb-cpus", ahb_hws,
-				   0x5c0, BIT(28), CLK_IS_CRITICAL);
+static SUNXI_CCU_GATE_HWS(ahb_cpus_clk, "ahb-cpus", ahb_hws,
+			  0x5c0, BIT(28), CLK_IS_CRITICAL);
 
-static SUN60I_A733_KEYED_GATE_HWS(mbus_iommu0_clk, "mbus-iommu0", mbus_hws,
-				   0x5e0, BIT(0), 0);
-static SUN60I_A733_KEYED_GATE_HWS(mbus_iommu1_clk, "mbus-iommu1", mbus_hws,
-				   0x5e0, BIT(1), 0);
-static SUN60I_A733_KEYED_GATE_HWS(mbus_desys_clk, "mbus-desys", mbus_hws,
-				   0x5e0, BIT(11), 0);
-static SUN60I_A733_KEYED_GATE_HWS(mbus_ve_enc0_gate_clk, "mbus-ve-enc0-gate", mbus_hws,
-				   0x5e0, BIT(12), 0);
-static SUN60I_A733_KEYED_GATE_HWS(mbus_ve_dec0_gate_clk, "mbus-ve-dec0-gate", mbus_hws,
-				   0x5e0, BIT(14), 0);
-static SUN60I_A733_KEYED_GATE_HWS(mbus_gpu0_clk, "mbus-gpu0", mbus_hws,
-				   0x5e0, BIT(16), 0);
-static SUN60I_A733_KEYED_GATE_HWS(mbus_npu_clk, "mbus-npu", mbus_hws,
-				   0x5e0, BIT(18), 0);
-static SUN60I_A733_KEYED_GATE_HWS(mbus_vid_in_clk, "mbus-vid-in", mbus_hws,
-				   0x5e0, BIT(24), 0);
-static SUN60I_A733_KEYED_GATE_HWS(mbus_serdes_clk, "mbus-serdes", mbus_hws,
-				   0x5e0, BIT(28), 0);
-static SUN60I_A733_KEYED_GATE_HWS(mbus_msi_lite0_clk, "mbus-msi-lite0", mbus_hws,
-				   0x5e0, BIT(29), 0);
+static SUNXI_CCU_GATE_HWS(mbus_iommu0_clk, "mbus-iommu0", mbus_hws,
+			  0x5e0, BIT(0), 0);
+static SUNXI_CCU_GATE_HWS(mbus_iommu1_clk, "mbus-iommu1", mbus_hws,
+			  0x5e0, BIT(1), 0);
+static SUNXI_CCU_GATE_HWS(mbus_desys_clk, "mbus-desys", mbus_hws,
+			  0x5e0, BIT(11), 0);
+static SUNXI_CCU_GATE_HWS(mbus_ve_enc0_gate_clk, "mbus-ve-enc0-gate", mbus_hws,
+			  0x5e0, BIT(12), 0);
+static SUNXI_CCU_GATE_HWS(mbus_ve_dec0_gate_clk, "mbus-ve-dec0-gate", mbus_hws,
+			  0x5e0, BIT(14), 0);
+static SUNXI_CCU_GATE_HWS(mbus_gpu0_clk, "mbus-gpu0", mbus_hws,
+			  0x5e0, BIT(16), 0);
+static SUNXI_CCU_GATE_HWS(mbus_npu_clk, "mbus-npu", mbus_hws,
+			  0x5e0, BIT(18), 0);
+static SUNXI_CCU_GATE_HWS(mbus_vid_in_clk, "mbus-vid-in", mbus_hws,
+			  0x5e0, BIT(24), 0);
+static SUNXI_CCU_GATE_HWS(mbus_serdes_clk, "mbus-serdes", mbus_hws,
+			  0x5e0, BIT(28), 0);
+static SUNXI_CCU_GATE_HWS(mbus_msi_lite0_clk, "mbus-msi-lite0", mbus_hws,
+			  0x5e0, BIT(29), 0);
 
 /* Keep enabled for the storage controller DMA paths. */
-static SUN60I_A733_KEYED_GATE_HWS(mbus_store_clk, "mbus-store", mbus_hws,
-				   0x5e0, BIT(30), CLK_IS_CRITICAL);
+static SUNXI_CCU_GATE_HWS(mbus_store_clk, "mbus-store", mbus_hws,
+			  0x5e0, BIT(30), CLK_IS_CRITICAL);
 static const struct clk_hw *mbus_store_hws[] = { &mbus_store_clk.common.hw };
 
-static SUN60I_A733_KEYED_GATE_HWS(mbus_msi_lite2_clk, "mbus-msi-lite2", mbus_hws,
-				   0x5e0, BIT(31), 0);
+static SUNXI_CCU_GATE_HWS(mbus_msi_lite2_clk, "mbus-msi-lite2", mbus_hws,
+			  0x5e0, BIT(31), 0);
 
-static SUN60I_A733_KEYED_GATE_HWS(mbus_dma0_clk, "mbus-dma0", mbus_hws,
-				   0x5e4, BIT(0), 0);
-static SUN60I_A733_KEYED_GATE_HWS(mbus_ve_enc0_clk, "mbus-ve-enc0", mbus_hws,
-				   0x5e4, BIT(1), 0);
-static SUN60I_A733_KEYED_GATE_HWS(mbus_ce_clk, "mbus-ce", mbus_hws,
-				   0x5e4, BIT(2), 0);
-static SUN60I_A733_KEYED_GATE_HWS(mbus_dma1_clk, "mbus-dma1", mbus_hws,
-				   0x5e4, BIT(3), 0);
-static SUN60I_A733_KEYED_GATE_HWS(mbus_nand0_clk, "mbus-nand0", mbus_store_hws,
-				   0x5e4, BIT(5), 0);
-static SUN60I_A733_KEYED_GATE_HWS(mbus_csi_clk, "mbus-csi", mbus_hws,
-				   0x5e4, BIT(8), 0);
-static SUN60I_A733_KEYED_GATE_HWS(mbus_isp_clk, "mbus-isp", mbus_hws,
-				   0x5e4, BIT(9), 0);
-static SUN60I_A733_KEYED_GATE_HWS(mbus_gmac0_clk, "mbus-gmac0", mbus_hws,
-				   0x5e4, BIT(11), 0);
+static SUNXI_CCU_GATE_HWS(mbus_dma0_clk, "mbus-dma0", mbus_hws,
+			  0x5e4, BIT(0), 0);
+static SUNXI_CCU_GATE_HWS(mbus_ve_enc0_clk, "mbus-ve-enc0", mbus_hws,
+			  0x5e4, BIT(1), 0);
+static SUNXI_CCU_GATE_HWS(mbus_ce_clk, "mbus-ce", mbus_hws,
+			  0x5e4, BIT(2), 0);
+static SUNXI_CCU_GATE_HWS(mbus_dma1_clk, "mbus-dma1", mbus_hws,
+			  0x5e4, BIT(3), 0);
+static SUNXI_CCU_GATE_HWS(mbus_nand0_clk, "mbus-nand0", mbus_store_hws,
+			  0x5e4, BIT(5), 0);
+static SUNXI_CCU_GATE_HWS(mbus_csi_clk, "mbus-csi", mbus_hws,
+			  0x5e4, BIT(8), 0);
+static SUNXI_CCU_GATE_HWS(mbus_isp_clk, "mbus-isp", mbus_hws,
+			  0x5e4, BIT(9), 0);
+static SUNXI_CCU_GATE_HWS(mbus_gmac0_clk, "mbus-gmac0", mbus_hws,
+			  0x5e4, BIT(11), 0);
 /* Undocumented, taken from the vendor kernel. */
-static SUN60I_A733_KEYED_GATE_HWS(mbus_gmac1_clk, "mbus-gmac1", mbus_hws,
-				   0x5e4, BIT(12), 0);
-static SUN60I_A733_KEYED_GATE_HWS(mbus_ve_dec0_clk, "mbus-ve-dec0", mbus_hws,
-				   0x5e4, BIT(18), 0);
+static SUNXI_CCU_GATE_HWS(mbus_gmac1_clk, "mbus-gmac1", mbus_hws,
+			  0x5e4, BIT(12), 0);
+static SUNXI_CCU_GATE_HWS(mbus_ve_dec0_clk, "mbus-ve-dec0", mbus_hws,
+			  0x5e4, BIT(18), 0);
 
 static SUNXI_CCU_GATE_HWS(bus_dma0_clk, "bus-dma0", ahb_hws,
 			  0x704, BIT(0), 0);
@@ -2503,16 +2400,15 @@ static int sun60i_a733_ccu_probe(struct platform_device *pdev)
 	writel(val, reg + SUN60I_A733_PLL_AUDIO1_REG);
 
 	/*
-	 * The key field bits cannot be read back. The vendor BSP and the
-	 * earlier local driver enabled every master gate at probe time: start
-	 * from that state.
+	 * Bus master gates (AHB 0x5C0, MBUS master 0x5E0, MBUS gate 0x5E4) are
+	 * plain read/write (checked on silicon). The vendor BSP keeps its
+	 * critical master gates on with every write; several have no DT
+	 * consumer yet (e.g. USB AHB, 0x5C0 bit 9: gating it stalls the bus),
+	 * so turn the same set on before the clocks are registered.
 	 */
-	for (i = 0; i < ARRAY_SIZE(sun60i_a733_key_regs); i++) {
-		struct sun60i_a733_key_reg *kr = &sun60i_a733_key_regs[i];
-
-		kr->state = kr->key;
-		writel(readl(reg + kr->reg) | kr->key, reg + kr->reg);
-	}
+	writel(readl(reg + 0x5c0) | 0x010000ff, reg + 0x5c0);
+	writel(readl(reg + 0x5e0) | 0x41055800, reg + 0x5e0);
+	writel(readl(reg + 0x5e4) | 0x00040302, reg + 0x5e4);
 
 	/*
 	 * Cubie A7A: blocks that no DT node describes yet, set up as the
