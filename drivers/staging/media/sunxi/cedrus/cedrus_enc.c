@@ -6,6 +6,7 @@
  * Author: Paul Kocialkowski <paul.kocialkowski@bootlin.com>
  */
 
+#include <linux/moduleparam.h>
 #include <linux/types.h>
 #include <linux/videodev2.h>
 
@@ -54,6 +55,14 @@ int cedrus_enc_format_coded_prepare(struct cedrus_context *ctx,
 	return 0;
 }
 
+/*
+ * A733 encoder bring-up only: VE_MODE DDR mode field (bits 17:16), which the
+ * decoder path sets and this path did not. -1 leaves the field untouched.
+ */
+static int ddr_mode = -1;
+module_param(ddr_mode, int, 0644);
+MODULE_PARM_DESC(ddr_mode, "Bring-up: VE_MODE DDR mode bits 17:16 (0-3, -1 = untouched)");
+
 int cedrus_enc_format_coded_configure(struct cedrus_context *ctx)
 {
 	struct cedrus_device *dev = ctx->proc->dev;
@@ -87,6 +96,10 @@ int cedrus_enc_format_coded_configure(struct cedrus_context *ctx)
 	value |= VE_MODE_ENC_ENABLE |
 		 VE_MODE_ENC_ISP_ENABLE |
 		 VE_MODE_DEC_DISABLED;
+	if (ddr_mode >= 0 && ddr_mode <= 3) {
+		value &= ~GENMASK(17, 16);
+		value |= (u32)ddr_mode << 16;
+	}
 	cedrus_write(dev, mode_reg, value);
 
 	return 0;

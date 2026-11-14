@@ -7,11 +7,13 @@
  */
 
 #include <linux/align.h>
+#include <linux/moduleparam.h>
 #include <linux/sizes.h>
 #include <linux/types.h>
 #include <linux/videodev2.h>
 #include <media/v4l2-ctrls.h>
 #include <media/videobuf2-core.h>
+#include <media/videobuf2-dma-contig.h>
 #include <media/videobuf2-v4l2.h>
 
 #include "cedrus.h"
@@ -61,6 +63,11 @@ static u8 cedrus_enc_h264_profile_idc(int profile)
 		return 0;
 	}
 }
+
+/* A733 encoder bring-up only: dump the start of each coded buffer. */
+static bool dump_coded;
+module_param(dump_coded, bool, 0644);
+MODULE_PARM_DESC(dump_coded, "Bring-up: print the first bytes of each coded buffer");
 
 static bool cedrus_enc_h264_profile_cabac_check(int profile)
 {
@@ -1293,6 +1300,19 @@ static void cedrus_enc_h264_job_finish(struct cedrus_context *ctx, int state)
 	WARN_ON(length > vb2_plane_size(vb2_buffer, 0));
 
 	vb2_set_plane_payload(vb2_buffer, 0, length);
+
+	if (dump_coded) {
+		u8 *vaddr = vb2_plane_vaddr(vb2_buffer, 0);
+		dma_addr_t dma = vb2_dma_contig_plane_dma_addr(vb2_buffer, 0);
+
+		dev_info(dev->dev, "coded: dma %pad stm %08x-%08x len %u vaddr %s\n",
+			 &dma,
+			 cedrus_read(dev, VE_ENC_AVC_STM_START_ADDR_REG),
+			 cedrus_read(dev, VE_ENC_AVC_STM_END_ADDR_REG),
+			 length, vaddr ? "yes" : "no");
+		if (vaddr)
+			dev_info(dev->dev, "coded: %*ph\n", 32, vaddr);
+	}
 
 	switch (job->frame_type) {
 	case CEDRUS_ENC_H264_FRAME_TYPE_IDR:
