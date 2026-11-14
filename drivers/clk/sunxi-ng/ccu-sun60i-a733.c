@@ -802,7 +802,8 @@ static SUNXI_CCU_M_HW_WITH_MUX_GATE(ve_enc0_clk, "ve-enc0", ve_enc_parents, 0xa8
 				    0, 5,	/* M */
 				    24, 3,	/* mux */
 				    BIT(31),	/* gate */
-				    CLK_SET_RATE_PARENT);
+				    CLK_SET_RATE_PARENT |
+				    CLK_SET_RATE_NO_REPARENT);
 
 static const struct clk_hw *ve_dec_parents[] = {
 	&pll_ve1_clk.common.hw,
