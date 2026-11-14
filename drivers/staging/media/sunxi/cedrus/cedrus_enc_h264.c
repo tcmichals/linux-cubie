@@ -1121,8 +1121,8 @@ static int cedrus_enc_h264_job_configure(struct cedrus_context *cedrus_ctx)
 
 	cedrus_job_buffer_coded_dma(cedrus_ctx, &addr, &size);
 
-	dev_info(dev->dev, "cedrus_enc: STM addr=%pad size=%u rec=%pad mb_info=%pad\n",
-		 &addr, size, &h264_buffer->rec_dma, &h264_ctx->mb_info_dma);
+	dev_dbg(dev->dev, "cedrus_enc: STM addr=%pad size=%u rec=%pad mb_info=%pad\n",
+		&addr, size, &h264_buffer->rec_dma, &h264_ctx->mb_info_dma);
 
 	cedrus_write(dev, VE_ENC_AVC_STM_START_ADDR_REG, addr);
 	cedrus_write(dev, VE_ENC_AVC_STM_END_ADDR_REG, addr + size - 1);

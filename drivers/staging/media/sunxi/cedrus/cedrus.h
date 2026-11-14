@@ -85,6 +85,9 @@ struct cedrus_device {
 	struct clk		*clock_ahb;
 	struct clk		*clock_mod;
 	struct clk		*clock_ram;
+	/* A733 encoder AHB/MBUS master gates (optional) */
+	struct clk		*clock_ahb_master;
+	struct clk		*clock_mbus_master;
 	struct reset_control	*reset;
 
 	unsigned int		capabilities;

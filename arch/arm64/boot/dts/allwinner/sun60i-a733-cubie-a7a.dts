@@ -857,8 +857,13 @@
 			interrupts = <GIC_SPI 48 IRQ_TYPE_LEVEL_HIGH>;
 			clocks = <&ccu CLK_BUS_VE_ENC0>,
 				 <&ccu CLK_VE_ENC0>,
-				 <&ccu CLK_MBUS_VE_ENC0>;
-			clock-names = "ahb", "mod", "ram";
+				 <&ccu CLK_MBUS_VE_ENC0>,
+				 <&ccu CLK_AHB_VE_ENC>,
+				 <&ccu CLK_MBUS_VE_ENC0_GATE>;
+			clock-names = "ahb", "mod", "ram",
+				      "ahb-master", "mbus-master";
+			assigned-clocks = <&ccu CLK_VE_ENC0>;
+			assigned-clock-parents = <&ccu CLK_PLL_VE1>;
 			resets = <&ccu RST_BUS_VE_ENC0>;
 			power-domains = <&pck600 PD_VE_ENC>;
 			status = "okay";

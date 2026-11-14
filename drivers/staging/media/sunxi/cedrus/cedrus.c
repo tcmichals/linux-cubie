@@ -10,6 +10,7 @@
 
 #include <linux/clk.h>
 #include <linux/interrupt.h>
+#include <linux/io.h>
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/of_reserved_mem.h>
@@ -249,6 +250,8 @@ static int cedrus_suspend(struct device *dev)
 	clk_disable_unprepare(cedrus_dev->clock_ram);
 	clk_disable_unprepare(cedrus_dev->clock_mod);
 	clk_disable_unprepare(cedrus_dev->clock_ahb);
+	clk_disable_unprepare(cedrus_dev->clock_mbus_master);
+	clk_disable_unprepare(cedrus_dev->clock_ahb_master);
 
 	reset_control_assert(cedrus_dev->reset);
 
@@ -266,10 +269,22 @@ static int cedrus_resume(struct device *dev)
 		return ret;
 	}
 
+	ret = clk_prepare_enable(cedrus_dev->clock_ahb_master);
+	if (ret) {
+		dev_err(dev, "failed to enable ahb master gate\n");
+		goto error_reset;
+	}
+
+	ret = clk_prepare_enable(cedrus_dev->clock_mbus_master);
+	if (ret) {
+		dev_err(dev, "failed to enable mbus master gate\n");
+		goto error_ahb_master;
+	}
+
 	ret = clk_prepare_enable(cedrus_dev->clock_ahb);
 	if (ret) {
 		dev_err(dev, "failed to enable ahb clock\n");
-		goto error_reset;
+		goto error_mbus_master;
 	}
 
 	ret = clk_prepare_enable(cedrus_dev->clock_mod);
@@ -309,6 +324,12 @@ error_clock_mod:
 
 error_clock_ahb:
 	clk_disable_unprepare(cedrus_dev->clock_ahb);
+
+error_mbus_master:
+	clk_disable_unprepare(cedrus_dev->clock_mbus_master);
+
+error_ahb_master:
+	clk_disable_unprepare(cedrus_dev->clock_ahb_master);
 
 error_reset:
 	reset_control_assert(cedrus_dev->reset);
@@ -365,6 +386,17 @@ static int cedrus_resources_setup(struct cedrus_device *cedrus_dev,
 		dev_err(dev, "failed to get ram clock\n");
 		return PTR_ERR(cedrus_dev->clock_ram);
 	}
+
+	/* A733 encoder: AHB and MBUS master gates, absent on other SoCs */
+	cedrus_dev->clock_ahb_master = devm_clk_get_optional(dev, "ahb-master");
+	if (IS_ERR(cedrus_dev->clock_ahb_master))
+		return dev_err_probe(dev, PTR_ERR(cedrus_dev->clock_ahb_master),
+				     "failed to get ahb master gate\n");
+
+	cedrus_dev->clock_mbus_master = devm_clk_get_optional(dev, "mbus-master");
+	if (IS_ERR(cedrus_dev->clock_mbus_master))
+		return dev_err_probe(dev, PTR_ERR(cedrus_dev->clock_mbus_master),
+				     "failed to get mbus master gate\n");
 
 	ret = clk_set_rate(cedrus_dev->clock_mod, variant->clock_mod_rate);
 	if (ret) {
@@ -432,6 +464,55 @@ static void cedrus_resources_cleanup(struct cedrus_device *cedrus_dev)
 	of_reserved_mem_device_release(dev);
 }
 
+/*
+ * A733 encoder bring-up only (step (a), A733_VE_H264_ENCODER_PLAN.md): read
+ * the power-domain status, the ENC_TOP and version registers and the two
+ * system-control bits the vendor driver clears, with the device resumed.
+ * Drop before upstream.
+ */
+#define A733_CCU_VE_ENC_CFG_REG		0x02003b14	/* CCU + 0x1b14 */
+#define A733_SYS_CTRL_BASE		0x03000000
+
+static void cedrus_a733_enc_readback(struct cedrus_device *cedrus_dev)
+{
+	struct device *dev = cedrus_dev->dev;
+	u32 top = cedrus_dev->top_reg_offset;
+	void __iomem *cfg, *sys;
+	int ret;
+
+	if (!of_device_is_compatible(dev->of_node,
+				     "allwinner,sun60i-a733-video-engine-enc"))
+		return;
+
+	ret = pm_runtime_resume_and_get(dev);
+	if (ret) {
+		dev_err(dev, "readback: resume failed: %d\n", ret);
+		return;
+	}
+
+	dev_info(dev, "readback: mod %lu Hz, top+0x0 %08x top+0x4 %08x +0x8e4 %08x +0x8f0 %08x\n",
+		 clk_get_rate(cedrus_dev->clock_mod),
+		 cedrus_read(cedrus_dev, top + VE_MODE_REG),
+		 cedrus_read(cedrus_dev, top + VE_RESET_REG),
+		 cedrus_read(cedrus_dev, 0x8e4),
+		 cedrus_read(cedrus_dev, 0x8f0));
+
+	cfg = ioremap(A733_CCU_VE_ENC_CFG_REG, 4);
+	sys = ioremap(A733_SYS_CTRL_BASE, 8);
+	if (cfg && sys) {
+		u32 pd = readl(cfg);
+
+		dev_info(dev, "readback: CCU 0x1b14 %08x (PD status %u), sys 0x0 %08x 0x4 %08x\n",
+			 pd, (pd >> 16) & 0x3, readl(sys), readl(sys + 4));
+	}
+	if (sys)
+		iounmap(sys);
+	if (cfg)
+		iounmap(cfg);
+
+	pm_runtime_put(dev);
+}
+
 static int cedrus_probe(struct platform_device *platform_dev)
 {
 	struct cedrus_device *cedrus_dev;
@@ -462,6 +543,8 @@ static int cedrus_probe(struct platform_device *platform_dev)
 	ret = cedrus_enc_setup(cedrus_dev);
 	if (ret)
 		goto error_dec;
+
+	cedrus_a733_enc_readback(cedrus_dev);
 
 	return 0;
 
