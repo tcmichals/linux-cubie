@@ -2423,8 +2423,13 @@ static int sun60i_a733_ccu_probe(struct platform_device *pdev)
 	/* SERDES_PHY_CFG clock gate and SERDES reset, used by USB2 */
 	writel(readl(reg + 0x13c0) | BIT(31), reg + 0x13c0);
 	writel(readl(reg + 0x13c4) | BIT(16), reg + 0x13c4);
-	/* CM_VE_ENC_CFG_REG module mode: not a clock, not modelled */
-	writel(readl(reg + 0x1b14) | BIT(0), reg + 0x1b14);
+	/*
+	 * CM_VE_ENC_CFG_REG (0x1b14) bit 0 "module mode" is left at its reset
+	 * value 0, as the vendor kernel does. Set, it holds the VE_ENC PPU
+	 * DEVACTIVE input high, so the VE_ENC power domain never turns off
+	 * (pck-600 "failed to turn domain VE_ENC off: -110"); silicon test
+	 * 2026-11-14.
+	 */
 	/* ISP_CLK: PERI0_600M / 1, on (no ISP node yet) */
 	writel(BIT(31) | (3 << 24), reg + 0x1860);
 
