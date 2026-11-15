@@ -358,6 +358,7 @@ static int cedrus_resources_setup(struct cedrus_device *cedrus_dev,
 
 	cedrus_dev->capabilities = variant->capabilities;
 	cedrus_dev->top_reg_offset = variant->top_reg_offset;
+	cedrus_dev->enc_addr_shift = variant->enc_addr_shift;
 
 	/* Registers */
 
@@ -686,6 +687,13 @@ static const struct cedrus_variant cedrus_variant_sun60i_a733_enc = {
 			  CEDRUS_CAPABILITY_H264_ENC,
 	.clock_mod_rate	= 400000000,
 	.top_reg_offset	= 0x800,
+	/*
+	 * The A733 encoder takes its output-side buffer addresses (bitstream,
+	 * reconstruction, reference, subpixel, MB info) in 256-byte units;
+	 * the ENCPP input addresses stay byte addresses. Seen in the vendor
+	 * libcedarc register image on the A7A (Radxa r6, 2026-11-14).
+	 */
+	.enc_addr_shift	= 8,
 };
 
 static const struct of_device_id cedrus_of_match[] = {

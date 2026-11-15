@@ -60,6 +60,7 @@ struct cedrus_variant {
 	unsigned int	capabilities;
 	unsigned int	clock_mod_rate;
 	unsigned int	top_reg_offset;
+	unsigned int	enc_addr_shift;
 };
 
 struct cedrus_format {
@@ -92,6 +93,7 @@ struct cedrus_device {
 
 	unsigned int		capabilities;
 	unsigned int		top_reg_offset;
+	unsigned int		enc_addr_shift;
 
 	struct delayed_work	watchdog_work;
 };

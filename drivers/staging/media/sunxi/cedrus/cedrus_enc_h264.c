@@ -726,6 +726,16 @@ static int cedrus_enc_h264_job_prepare(struct cedrus_context *cedrus_ctx)
 	return 0;
 }
 
+/* Encoder output-side buffer address as the AVC address registers take it. */
+static u32 cedrus_enc_h264_addr(struct cedrus_device *dev, dma_addr_t addr)
+{
+	unsigned int shift = dev->enc_addr_shift;
+
+	WARN_ON_ONCE(shift && (addr & (BIT(shift) - 1)));
+
+	return addr >> shift;
+}
+
 static void cedrus_enc_h264_job_configure_sps(struct cedrus_context *cedrus_ctx)
 {
 	struct cedrus_device *dev = cedrus_ctx->proc->dev;
@@ -1131,8 +1141,10 @@ static int cedrus_enc_h264_job_configure(struct cedrus_context *cedrus_ctx)
 	dev_dbg(dev->dev, "cedrus_enc: STM addr=%pad size=%u rec=%pad mb_info=%pad\n",
 		&addr, size, &h264_buffer->rec_dma, &h264_ctx->mb_info_dma);
 
-	cedrus_write(dev, VE_ENC_AVC_STM_START_ADDR_REG, addr);
-	cedrus_write(dev, VE_ENC_AVC_STM_END_ADDR_REG, addr + size - 1);
+	cedrus_write(dev, VE_ENC_AVC_STM_START_ADDR_REG,
+		     cedrus_enc_h264_addr(dev, addr));
+	cedrus_write(dev, VE_ENC_AVC_STM_END_ADDR_REG,
+		     (addr + size - 1) >> dev->enc_addr_shift);
 
 	cedrus_write(dev, VE_ENC_AVC_STM_BIT_MAX_REG, size * 8);
 
@@ -1146,7 +1158,8 @@ static int cedrus_enc_h264_job_configure(struct cedrus_context *cedrus_ctx)
 
 	/* Configure macroblock info buffer. */
 
-	cedrus_write(dev, VE_ENC_AVC_MB_INFO_ADDR_REG, h264_ctx->mb_info_dma);
+	cedrus_write(dev, VE_ENC_AVC_MB_INFO_ADDR_REG,
+		     cedrus_enc_h264_addr(dev, h264_ctx->mb_info_dma));
 
 	/* Clear motion vector buffer. */
 
@@ -1154,9 +1167,11 @@ static int cedrus_enc_h264_job_configure(struct cedrus_context *cedrus_ctx)
 
 	/* Configure reconstruction buffer. */
 
-	cedrus_write(dev, VE_ENC_AVC_REC_ADDR_Y_REG, h264_buffer->rec_dma);
-	cedrus_write(dev, VE_ENC_AVC_REC_ADDR_C_REG, h264_buffer->rec_dma +
-		     h264_buffer->rec_luma_size);
+	cedrus_write(dev, VE_ENC_AVC_REC_ADDR_Y_REG,
+		     cedrus_enc_h264_addr(dev, h264_buffer->rec_dma));
+	cedrus_write(dev, VE_ENC_AVC_REC_ADDR_C_REG,
+		     cedrus_enc_h264_addr(dev, h264_buffer->rec_dma +
+					  h264_buffer->rec_luma_size));
 
 	if (job->frame_type == CEDRUS_ENC_H264_FRAME_TYPE_P) {
 		addr = h264_ctx->rec_last_dma;
@@ -1167,8 +1182,10 @@ static int cedrus_enc_h264_job_configure(struct cedrus_context *cedrus_ctx)
 		luma_size = h264_buffer->rec_luma_size;
 	}
 
-	cedrus_write(dev, VE_ENC_AVC_REF0_ADDR_Y_REG, addr);
-	cedrus_write(dev, VE_ENC_AVC_REF0_ADDR_C_REG, addr + luma_size);
+	cedrus_write(dev, VE_ENC_AVC_REF0_ADDR_Y_REG,
+		     cedrus_enc_h264_addr(dev, addr));
+	cedrus_write(dev, VE_ENC_AVC_REF0_ADDR_C_REG,
+		     cedrus_enc_h264_addr(dev, addr + luma_size));
 
 	h264_ctx->rec_last_dma = h264_buffer->rec_dma;
 	h264_ctx->rec_last_luma_size = h264_buffer->rec_luma_size;
@@ -1176,14 +1193,14 @@ static int cedrus_enc_h264_job_configure(struct cedrus_context *cedrus_ctx)
 	/* Configure subpixel buffers. */
 
 	cedrus_write(dev, VE_ENC_AVC_SUBPIX_ADDR_NEW_REG,
-		     h264_buffer->subpix_dma);
+		     cedrus_enc_h264_addr(dev, h264_buffer->subpix_dma));
 
 	if (!h264_ctx->subpix_last_dma)
 		h264_ctx->subpix_last_dma = h264_buffer->subpix_dma;
 
 	/* XXX: is this for the last reference or the last encoded frame? */
 	cedrus_write(dev, VE_ENC_AVC_SUBPIX_ADDR_LAST_REG,
-		     h264_ctx->subpix_last_dma);
+		     cedrus_enc_h264_addr(dev, h264_ctx->subpix_last_dma));
 
 	h264_ctx->subpix_last_dma = h264_buffer->subpix_dma;
 
