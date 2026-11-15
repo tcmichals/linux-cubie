@@ -59,6 +59,16 @@ int cedrus_enc_format_coded_prepare(struct cedrus_context *ctx,
  * A733 encoder bring-up only: VE_MODE DDR mode field (bits 17:16), which the
  * decoder path sets and this path did not. -1 leaves the field untouched.
  */
+unsigned int cedrus_a733_quirks = CEDRUS_A733_QUIRK_SIZE_8PX | CEDRUS_A733_QUIRK_AUX_BUFS;
+module_param_named(a733_quirks, cedrus_a733_quirks, uint, 0644);
+MODULE_PARM_DESC(a733_quirks, "Bring-up: A733 encoder quirk bits (1 size in 8 px, 2 aux buffers, 4 constants, 8 VE_MODE 31:30)");
+
+bool cedrus_a733_quirk(struct cedrus_device *dev, unsigned int quirk)
+{
+	/* enc_addr_shift marks the A733 "Ver2" encoder. */
+	return dev->enc_addr_shift && (cedrus_a733_quirks & quirk);
+}
+
 static int ddr_mode = -1;
 module_param(ddr_mode, int, 0644);
 MODULE_PARM_DESC(ddr_mode, "Bring-up: VE_MODE DDR mode bits 17:16 (0-3, -1 = untouched)");
@@ -96,6 +106,8 @@ int cedrus_enc_format_coded_configure(struct cedrus_context *ctx)
 	value |= VE_MODE_ENC_ENABLE |
 		 VE_MODE_ENC_ISP_ENABLE |
 		 VE_MODE_DEC_DISABLED;
+	if (cedrus_a733_quirk(dev, CEDRUS_A733_QUIRK_MODE_HI))
+		value |= BIT(31) | BIT(30);
 	if (ddr_mode >= 0 && ddr_mode <= 3) {
 		value &= ~GENMASK(17, 16);
 		value |= (u32)ddr_mode << 16;
@@ -157,6 +169,22 @@ int cedrus_enc_format_picture_configure(struct cedrus_context *ctx)
 
 	width_mbs = DIV_ROUND_UP(pix_format->width, 16);
 	height_mbs = DIV_ROUND_UP(pix_format->height, 16);
+
+	/*
+	 * A733: the vendor library programs these sizes in 8-pixel units
+	 * (1280x720 -> 160x90), seen in its register image.
+	 */
+	if (cedrus_a733_quirk(dev, CEDRUS_A733_QUIRK_SIZE_8PX)) {
+		width_mbs = DIV_ROUND_UP(pix_format->width, 8);
+		height_mbs = DIV_ROUND_UP(pix_format->height, 8);
+		cedrus_write(dev, VE_ENGINE_ENC_ISP_BASE + 0x14,
+			     pix_format->bytesperline / 16);
+	}
+
+	if (cedrus_a733_quirk(dev, CEDRUS_A733_QUIRK_CONSTS)) {
+		cedrus_write(dev, VE_ENGINE_ENC_ISP_BASE + 0x90, 0x03ff03ff);
+		cedrus_write(dev, VE_ENGINE_ENC_ISP_BASE + 0xf0, 0x00000200);
+	}
 
 	cedrus_write(dev, VE_ISP_PIC_INFO_REG,
 		     VE_ISP_PIC_INFO_WIDTH_MBS(width_mbs) |

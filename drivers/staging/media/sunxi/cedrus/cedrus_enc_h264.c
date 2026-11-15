@@ -65,6 +65,15 @@ static u8 cedrus_enc_h264_profile_idc(int profile)
 }
 
 /* A733 encoder bring-up only: dump the start of each coded buffer. */
+#define CEDRUS_ENC_H264_AUX_SIZE	SZ_512K
+#define CEDRUS_ENC_H264_AUX_DEBLK	0
+#define CEDRUS_ENC_H264_AUX_9C		SZ_64K
+#define CEDRUS_ENC_H264_AUX_MV		SZ_128K
+
+static int dump_regs;
+module_param(dump_regs, int, 0644);
+MODULE_PARM_DESC(dump_regs, "Bring-up: dump ENC_TOP/ENCPP/AVC registers before the next N frames");
+
 static bool dump_coded;
 module_param(dump_coded, bool, 0644);
 MODULE_PARM_DESC(dump_coded, "Bring-up: print the first bytes of each coded buffer");
@@ -479,6 +488,15 @@ static int cedrus_enc_h264_setup(struct cedrus_context *cedrus_ctx)
 	if (!h264_ctx->mb_info)
 		return -ENOMEM;
 
+	h264_ctx->aux = dma_alloc_coherent(dev, CEDRUS_ENC_H264_AUX_SIZE,
+					   &h264_ctx->aux_dma, GFP_KERNEL);
+	if (!h264_ctx->aux) {
+		dma_free_attrs(dev, h264_ctx->mb_info_size, h264_ctx->mb_info,
+			       h264_ctx->mb_info_dma,
+			       DMA_ATTR_NO_KERNEL_MAPPING);
+		return -ENOMEM;
+	}
+
 	/* State */
 
 	state->step = CEDRUS_ENC_H264_STEP_START;
@@ -514,6 +532,8 @@ static int cedrus_enc_h264_setup(struct cedrus_context *cedrus_ctx)
 error_dma:
 	dma_free_attrs(dev, h264_ctx->mb_info_size, h264_ctx->mb_info,
 		       h264_ctx->mb_info_dma, DMA_ATTR_NO_KERNEL_MAPPING);
+	dma_free_coherent(dev, CEDRUS_ENC_H264_AUX_SIZE, h264_ctx->aux,
+			  h264_ctx->aux_dma);
 
 	return ret;
 }
@@ -525,6 +545,8 @@ static void cedrus_enc_h264_cleanup(struct cedrus_context *cedrus_ctx)
 
 	dma_free_attrs(dev, h264_ctx->mb_info_size, h264_ctx->mb_info,
 		       h264_ctx->mb_info_dma, DMA_ATTR_NO_KERNEL_MAPPING);
+	dma_free_coherent(dev, CEDRUS_ENC_H264_AUX_SIZE, h264_ctx->aux,
+			  h264_ctx->aux_dma);
 }
 
 /* Buffer */
@@ -1163,7 +1185,16 @@ static int cedrus_enc_h264_job_configure(struct cedrus_context *cedrus_ctx)
 
 	/* Clear motion vector buffer. */
 
-	cedrus_write(dev, VE_ENC_AVC_MV_BUF_ADDR_REG, 0);
+	if (cedrus_a733_quirk(dev, CEDRUS_A733_QUIRK_AUX_BUFS)) {
+		cedrus_write(dev, VE_ENC_AVC_MV_BUF_ADDR_REG,
+			     cedrus_enc_h264_addr(dev, h264_ctx->aux_dma +
+						  CEDRUS_ENC_H264_AUX_MV));
+		cedrus_write(dev, VE_ENGINE_ENC_H264_BASE + 0x9c,
+			     cedrus_enc_h264_addr(dev, h264_ctx->aux_dma +
+						  CEDRUS_ENC_H264_AUX_9C));
+	} else {
+		cedrus_write(dev, VE_ENC_AVC_MV_BUF_ADDR_REG, 0);
+	}
 
 	/* Configure reconstruction buffer. */
 
@@ -1206,7 +1237,21 @@ static int cedrus_enc_h264_job_configure(struct cedrus_context *cedrus_ctx)
 
 	/* Configure deblocking filter buffer. */
 
-	cedrus_write(dev, VE_ENC_AVC_DEBLK_ADDR_REG, 0);
+	if (cedrus_a733_quirk(dev, CEDRUS_A733_QUIRK_AUX_BUFS))
+		cedrus_write(dev, VE_ENC_AVC_DEBLK_ADDR_REG,
+			     cedrus_enc_h264_addr(dev, h264_ctx->aux_dma +
+						  CEDRUS_ENC_H264_AUX_DEBLK));
+	else
+		cedrus_write(dev, VE_ENC_AVC_DEBLK_ADDR_REG, 0);
+
+	if (cedrus_a733_quirk(dev, CEDRUS_A733_QUIRK_SIZE_8PX))
+		cedrus_write(dev, VE_ENGINE_ENC_H264_BASE + 0x00,
+			     cedrus_read(dev, VE_ISP_PIC_INFO_REG));
+
+	if (cedrus_a733_quirk(dev, CEDRUS_A733_QUIRK_CONSTS)) {
+		cedrus_write(dev, VE_ENGINE_ENC_H264_BASE + 0x40, 0x74000014);
+		cedrus_write(dev, VE_ENGINE_ENC_H264_BASE + 0x44, 0x0c1e0000);
+	}
 
 	/* Configure cyclic intra refresh. */
 
@@ -1288,6 +1333,22 @@ static void cedrus_enc_h264_job_trigger(struct cedrus_context *ctx)
 	cedrus_write(dev, VE_ENC_AVC_INT_EN_REG,
 		     VE_ENC_AVC_INT_EN_STALL |
 		     VE_ENC_AVC_INT_EN_FINISH);
+
+	if (dump_regs > 0) {
+		static u32 regs[0x100 / 4 + 0x200 / 4];
+		unsigned int i;
+
+		dump_regs--;
+		for (i = 0; i < 0x100 / 4; i++)
+			regs[i] = cedrus_read(dev, 0x800 + i * 4);
+		for (i = 0; i < 0x200 / 4; i++)
+			regs[0x100 / 4 + i] = cedrus_read(dev, 0xa00 + i * 4);
+		/* Same words as the vendor snapshots: +0x800-0x8ff, +0xa00-0xbff. */
+		print_hex_dump(KERN_INFO, "cedrus-regs 800: ", DUMP_PREFIX_OFFSET,
+			       32, 4, regs, 0x100, false);
+		print_hex_dump(KERN_INFO, "cedrus-regs a00: ", DUMP_PREFIX_OFFSET,
+			       32, 4, &regs[0x100 / 4], 0x200, false);
+	}
 
 	/* Trigger encode start. */
 

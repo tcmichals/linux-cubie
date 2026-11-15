@@ -56,6 +56,16 @@ enum cedrus_capability {
 
 struct cedrus_context;
 
+/* A733 encoder bring-up switches (module parameter a733_quirks). */
+#define CEDRUS_A733_QUIRK_SIZE_8PX	BIT(0)	/* picture size in 8-pixel units, AVC +0x00 */
+#define CEDRUS_A733_QUIRK_AUX_BUFS	BIT(1)	/* real MV, deblock and +0x9c buffers */
+#define CEDRUS_A733_QUIRK_CONSTS	BIT(2)	/* vendor constant registers */
+#define CEDRUS_A733_QUIRK_MODE_HI	BIT(3)	/* VE_MODE bits 31:30 set while encoding */
+extern unsigned int cedrus_a733_quirks;
+bool cedrus_a733_quirk(struct cedrus_device *dev, unsigned int quirk);
+
+struct cedrus_device;
+
 struct cedrus_variant {
 	unsigned int	capabilities;
 	unsigned int	clock_mod_rate;

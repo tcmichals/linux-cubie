@@ -82,6 +82,10 @@ struct cedrus_enc_h264_context {
 	dma_addr_t			mb_info_dma;
 	unsigned int			mb_info_size;
 
+	/* A733: deblock (+0), +0x9c (+64K) and MV (+128K) buffers. */
+	void				*aux;
+	dma_addr_t			aux_dma;
+
 	dma_addr_t			subpix_last_dma;
 
 	dma_addr_t			rec_last_dma;
