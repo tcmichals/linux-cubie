@@ -264,8 +264,7 @@ static void cedrus_enc_h265_put_pps(struct cedrus_context *cedrus_ctx)
 	cedrus_enc_h265_coded_bit(dev, 1);		/* init_qp_minus26 = 0 -> se(0)=bit 1 */
 	cedrus_enc_h265_coded_bit(dev, 0);		/* constrained_intra_pred_flag */
 	cedrus_enc_h265_coded_bit(dev, 0);		/* transform_skip_enabled_flag */
-	cedrus_enc_h265_coded_bit(dev, 1);		/* cu_qp_delta_enabled_flag */
-	cedrus_enc_h265_coded_ue(dev, 1);		/* diff_cu_qp_delta_depth */
+	cedrus_enc_h265_coded_bit(dev, 0);		/* cu_qp_delta_enabled_flag */
 	cedrus_enc_h265_coded_bit(dev, 1);		/* pps_cb_qp_offset = 0 -> se(0)=bit 1 */
 	cedrus_enc_h265_coded_bit(dev, 1);		/* pps_cr_qp_offset = 0 -> se(0)=bit 1 */
 	cedrus_enc_h265_coded_bit(dev, 0);		/* pps_slice_chroma_qp_offsets_present_flag */
@@ -585,8 +584,6 @@ static int cedrus_enc_h265_job_configure(struct cedrus_context *cedrus_ctx)
 		VE_ENC_AVC_PARA1_STRIDE_MBS_DIV_48(stride_mbs_div_48) |
 		VE_ENC_AVC_PARA1_FIXED_QP(job->qp);
 	cedrus_write(dev, VE_ENC_AVC_PARA1_REG, value);
-	cedrus_write(dev, VE_ENC_AVC_PARA2_REG, 0);
-
 	cedrus_write(dev, VE_ENC_AVC_PARA2_REG, 0);
 
 	cedrus_write(dev, VE_ENC_AVC_DYNAMIC_ME_PAR0_REG,
