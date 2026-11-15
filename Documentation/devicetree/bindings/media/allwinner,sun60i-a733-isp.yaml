@@ -28,14 +28,21 @@ properties:
     maxItems: 1
 
   clocks:
+    minItems: 2
     items:
       - description: Module Clock (ISP core clock)
       - description: DRAM / MBUS Clock (Memory bus clock)
+      - description: AHB Bus Clock (Video-In / CSI bus clock)
 
   clock-names:
+    minItems: 2
     items:
       - const: mod
       - const: ram
+      - const: bus
+
+  resets:
+    maxItems: 1
 
   power-domains:
     maxItems: 1

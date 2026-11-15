@@ -10,6 +10,7 @@
 #include <linux/dma-mapping.h>
 #include <linux/interrupt.h>
 #include <linux/io.h>
+#include <linux/math.h>
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/platform_device.h>
@@ -116,13 +117,26 @@ static void sun60i_isp_init_load_buffer(struct sun60i_isp_dev *isp,
 	val = (val & ~((0x3 << 4) | (0x7f << 8))) | (3 << 4) | (5 << 8);
 	writel(val, (u8 *)load + ISP_LOAD_GLOBAL_CFG1);
 
-	/* 6. Channel 0 10-bit raw */
-	writel(10, (u8 *)load + ISP_LOAD_CH0_EXPAND_CFG0);
+	/* 6. Channel 0: 10-bit input (bits 8:4 = 10) -> 12-bit internal (bits 20:16 = 12) */
+	writel(0x000c00a0, (u8 *)load + ISP_LOAD_CH0_EXPAND_CFG0);
 
-	/* 7. Clear D3D enable in module bypass registers */
+	/* 7. Clear D3D enable and enable Gamma LUT in module bypass registers */
 	val = readl((u8 *)load + ISP_LOAD_MODULE_BYPASS1);
 	val &= ~BIT(5);
+	val |= BIT(17);
 	writel(val, (u8 *)load + ISP_LOAD_MODULE_BYPASS1);
+
+	/* 7b. Populate 10-bit packed RGB Gamma LUT (gamma ~2.0 via int_sqrt) */
+	{
+		u32 *gamma = (u32 *)((u8 *)load + ISP_LOAD_GAMMA_OFFSET);
+		u32 i;
+
+		for (i = 0; i < ISP_GAMMA_TBL_LEN; i++) {
+			u32 v = min_t(u32, int_sqrt(i * 1023), 1023);
+
+			gamma[i] = v | (v << 10) | (v << 20);
+		}
+	}
 
 	/* 8. Clone into second load buffer for ping-pong safety */
 	memcpy(isp->load_buf[1], load, ISP_LOAD_DRAM_SIZE);
@@ -140,9 +154,13 @@ static int sun60i_isp_s_stream(struct v4l2_subdev *sd, int enable)
 		if (ret < 0)
 			return ret;
 
-		ret = clk_prepare_enable(isp->clk_ram);
+		ret = clk_prepare_enable(isp->clk_bus);
 		if (ret)
 			goto err_pm;
+
+		ret = clk_prepare_enable(isp->clk_ram);
+		if (ret)
+			goto err_clk_bus;
 
 		ret = clk_prepare_enable(isp->clk_mod);
 		if (ret)
@@ -171,9 +189,8 @@ static int sun60i_isp_s_stream(struct v4l2_subdev *sd, int enable)
 		/* Start ISP Top engine in online streaming mode */
 		writel(ISP_TOP_EN | ISP_TOP_CAP_EN, isp->regs + ISP_TOP_CFG0_REG);
 
-		/* Arm tables and trigger capture start */
-		val = ISP_AHB_GAMMA_UPDATE | ISP_AHB_CEM_UPDATE |
-		      ISP_AHB_PARA_READY | ISP_AHB_CAP_EN;
+		/* Arm Gamma LUT and trigger capture start */
+		val = ISP_AHB_GAMMA_UPDATE | ISP_AHB_PARA_READY | ISP_AHB_CAP_EN;
 		writel(val, isp->regs + ISP_AHB_CFG0_REG);
 
 		isp->streaming = true;
@@ -186,6 +203,8 @@ err_clk_mod:
 		clk_disable_unprepare(isp->clk_mod);
 err_clk_ram:
 		clk_disable_unprepare(isp->clk_ram);
+err_clk_bus:
+		clk_disable_unprepare(isp->clk_bus);
 err_pm:
 		pm_runtime_put(isp->dev);
 		return ret;
@@ -204,6 +223,7 @@ err_pm:
 
 	clk_disable_unprepare(isp->clk_mod);
 	clk_disable_unprepare(isp->clk_ram);
+	clk_disable_unprepare(isp->clk_bus);
 	pm_runtime_put(isp->dev);
 
 	return 0;
@@ -327,6 +347,11 @@ static int sun60i_isp_probe(struct platform_device *pdev)
 	if (IS_ERR(isp->regs))
 		return PTR_ERR(isp->regs);
 
+	isp->clk_bus = devm_clk_get_optional(dev, "bus");
+	if (IS_ERR(isp->clk_bus))
+		return dev_err_probe(dev, PTR_ERR(isp->clk_bus),
+				     "failed to get bus clock\n");
+
 	isp->clk_mod = devm_clk_get(dev, "mod");
 	if (IS_ERR(isp->clk_mod))
 		return dev_err_probe(dev, PTR_ERR(isp->clk_mod),
@@ -377,6 +402,7 @@ static int sun60i_isp_probe(struct platform_device *pdev)
 	/* Probe silicon hardware version */
 	ret = pm_runtime_resume_and_get(dev);
 	if (!ret) {
+		clk_prepare_enable(isp->clk_bus);
 		clk_prepare_enable(isp->clk_ram);
 		clk_prepare_enable(isp->clk_mod);
 		if (isp->rst)
@@ -390,6 +416,7 @@ static int sun60i_isp_probe(struct platform_device *pdev)
 			reset_control_assert(isp->rst);
 		clk_disable_unprepare(isp->clk_mod);
 		clk_disable_unprepare(isp->clk_ram);
+		clk_disable_unprepare(isp->clk_bus);
 		pm_runtime_put(dev);
 
 		dev_info(dev, "Allwinner Hardware ISP version: 0x%08x (rev %x.%x)\n",
@@ -407,6 +434,7 @@ static int sun60i_isp_probe(struct platform_device *pdev)
 
 	isp->pads[SUN60I_ISP_PAD_SINK].flags = MEDIA_PAD_FL_SINK;
 	isp->pads[SUN60I_ISP_PAD_SOURCE].flags = MEDIA_PAD_FL_SOURCE;
+	isp->subdev.entity.function = MEDIA_ENT_F_PROC_VIDEO_ISP;
 
 	ret = media_entity_pads_init(&isp->subdev.entity, SUN60I_ISP_NUM_PADS,
 				     isp->pads);

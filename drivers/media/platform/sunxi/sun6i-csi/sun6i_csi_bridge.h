@@ -47,6 +47,7 @@ struct sun6i_csi_bridge {
 
 	struct sun6i_csi_bridge_source	source_parallel;
 	struct sun6i_csi_bridge_source	source_mipi_csi2;
+	struct sun6i_csi_bridge_source	source_isp;
 };
 
 /* Helpers */

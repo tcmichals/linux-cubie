@@ -495,7 +495,10 @@ sun55i_a523_csi_bridge_configure(struct sun6i_csi_device *csi_dev,
 static void sun55i_a523_csi_bridge_enable(struct sun6i_csi_device *csi_dev)
 {
 	struct sun55i_a523_csi *a523 = csi_dev->priv;
+	u32 pixelformat;
 	u32 value;
+
+	sun6i_csi_capture_format(csi_dev, &pixelformat, NULL);
 
 	/* Enable CSI TOP module, ISP bridge, bridge channels 0, and max MBUS requests */
 	writel(SUN55I_A523_CSI_TOP_EN | SUN55I_A523_CSI_TOP_ISP_BRIDGE_EN |
@@ -511,8 +514,8 @@ static void sun55i_a523_csi_bridge_enable(struct sun6i_csi_device *csi_dev)
 	value |= SUN55I_A523_CSI_DMA_EN;
 	writel(value, a523->dma_base + SUN55I_A523_CSI_DMA_CH0_EN);
 
-	/* Enable VIPP in bypass mode if mapped */
-	if (a523->vipp_base) {
+	/* Enable VIPP in bypass mode for ISP NV12 path only (RAW10 bypasses ISP/VIPP) */
+	if (a523->vipp_base && pixelformat == V4L2_PIX_FMT_NV12) {
 		writel(SUN55I_A523_VIPP_CLK_GATING_EN | SUN55I_A523_VIPP_CAP_EN,
 		       a523->vipp_base + SUN55I_A523_VIPP_TOP_EN);
 		writel(SUN55I_A523_VIPP_CHN_CAP_EN | SUN55I_A523_VIPP_BYPASS_MODE,

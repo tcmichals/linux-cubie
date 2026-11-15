@@ -34,6 +34,7 @@ struct sun60i_isp_variant {
 struct sun60i_isp_dev {
 	struct device			*dev;
 	void __iomem			*regs;
+	struct clk			*clk_bus;
 	struct clk			*clk_mod;
 	struct clk			*clk_ram;
 	struct reset_control		*rst;

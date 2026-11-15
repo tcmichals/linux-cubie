@@ -865,8 +865,10 @@
 			reg = <0x05900000 0x1300>;
 			interrupts = <GIC_SPI 129 IRQ_TYPE_LEVEL_HIGH>;
 			clocks = <&ccu CLK_ISP>,
-				 <&ccu CLK_MBUS_ISP>;
-			clock-names = "mod", "ram";
+				 <&ccu CLK_MBUS_ISP>,
+				 <&ccu CLK_BUS_CSI>;
+			clock-names = "mod", "ram", "bus";
+			resets = <&ccu RST_BUS_CSI>;
 			power-domains = <&pck600 PD_VI>;
 			status = "okay";
 

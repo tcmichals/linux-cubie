@@ -90,6 +90,10 @@
 #define ISP_LOAD_VIN_CFG0		0x0170
 #define ISP_LOAD_CH0_EXPAND_CFG0	0x0198
 
+/* Load Buffer Table Offsets (within ISP_LOAD_DRAM_SIZE = 0x7700) */
+#define ISP_LOAD_GAMMA_OFFSET		0x5000
+#define ISP_GAMMA_TBL_LEN		1024
+
 /* Save-Load Buffer DRAM Layout */
 #define ISP_SAVE_LOAD_RANDOM_SEED	0x0030
 

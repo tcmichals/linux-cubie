@@ -416,7 +416,16 @@ static int sun6i_csi_bridge_s_stream(struct v4l2_subdev *subdev, int on)
 	struct sun6i_csi_bridge_source *source;
 	struct v4l2_subdev *source_subdev;
 	struct media_pad *remote_pad;
+	bool use_isp = false;
 	int ret;
+
+	if (bridge->source_isp.subdev && capture_streaming) {
+		u32 pixelformat;
+
+		sun6i_csi_capture_format(csi_dev, &pixelformat, NULL);
+		if (pixelformat == V4L2_PIX_FMT_NV12)
+			use_isp = true;
+	}
 
 	/* Source */
 
@@ -437,6 +446,10 @@ static int sun6i_csi_bridge_s_stream(struct v4l2_subdev *subdev, int on)
 	if (!on) {
 		if (!csi_dev->variant->source_stream_last)
 			v4l2_subdev_call(source_subdev, video, s_stream, 0);
+
+		if (use_isp)
+			v4l2_subdev_call(bridge->source_isp.subdev, video,
+					 s_stream, 0);
 
 		ret = 0;
 		goto disable;
@@ -471,9 +484,20 @@ static int sun6i_csi_bridge_s_stream(struct v4l2_subdev *subdev, int on)
 
 	ops->bridge_enable(csi_dev);
 
+	if (use_isp) {
+		ret = v4l2_subdev_call(bridge->source_isp.subdev, video,
+				       s_stream, 1);
+		if (ret && ret != -ENOIOCTLCMD)
+			goto disable;
+	}
+
 	ret = v4l2_subdev_call(source_subdev, video, s_stream, 1);
-	if (ret && ret != -ENOIOCTLCMD)
+	if (ret && ret != -ENOIOCTLCMD) {
+		if (use_isp)
+			v4l2_subdev_call(bridge->source_isp.subdev, video,
+					 s_stream, 0);
 		goto disable;
+	}
 
 	return 0;
 
@@ -686,6 +710,12 @@ sun6i_csi_bridge_notifier_bound(struct v4l2_async_notifier *notifier,
 	case SUN6I_CSI_PORT_MIPI_CSI2:
 		enabled = !bridge->source_parallel.expected;
 		break;
+	case SUN6I_CSI_PORT_ISP:
+		source->subdev = remote_subdev;
+		return media_create_pad_link(&bridge->subdev.entity,
+					     SUN6I_CSI_BRIDGE_PAD_SOURCE,
+					     &remote_subdev->entity, 0,
+					     MEDIA_LNK_FL_ENABLED);
 	default:
 		return -EINVAL;
 	}
@@ -860,6 +890,9 @@ int sun6i_csi_bridge_setup(struct sun6i_csi_device *csi_dev)
 				      parallel_mbus_types);
 	sun6i_csi_bridge_source_setup(csi_dev, &bridge->source_mipi_csi2,
 				      SUN6I_CSI_PORT_MIPI_CSI2, NULL);
+	if (!csi_dev->isp_available && IS_ENABLED(CONFIG_VIDEO_SUN60I_ISP))
+		sun6i_csi_bridge_source_setup(csi_dev, &bridge->source_isp,
+					      SUN6I_CSI_PORT_ISP, NULL);
 
 	ret = v4l2_async_nf_register(notifier);
 	if (ret) {
