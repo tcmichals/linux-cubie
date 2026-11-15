@@ -330,6 +330,25 @@ static void cedrus_enc_h264_coded_eptb(struct cedrus_device *dev, bool enable)
 	cedrus_write(dev, VE_ENC_AVC_PARA0_REG, value);
 }
 
+static void cedrus_enc_h264_coded_start_code(struct cedrus_device *dev)
+{
+	/* Disable emulation-prevention 0x3 byte for the Annex-B start code. */
+	cedrus_enc_h264_coded_eptb(dev, false);
+	cedrus_enc_h264_coded_u32(dev, 0x1);
+	cedrus_enc_h264_coded_eptb(dev, true);
+}
+
+static bool cedrus_enc_h264_is_high_profile(u8 profile_idc)
+{
+	return profile_idc == 100 || profile_idc == 110 ||
+	       profile_idc == 122 || profile_idc == 244 ||
+	       profile_idc == 44 || profile_idc == 83 ||
+	       profile_idc == 86 || profile_idc == 118 ||
+	       profile_idc == 128 || profile_idc == 138 ||
+	       profile_idc == 139 || profile_idc == 134 ||
+	       profile_idc == 135;
+}
+
 /* Ctrl */
 
 static int cedrus_enc_h264_ctrl_validate(struct cedrus_context *ctx,
@@ -772,7 +791,7 @@ static void cedrus_enc_h264_job_configure_sps(struct cedrus_context *cedrus_ctx)
 	u8 header;
 
 	/* Syntax element: Annex-B start code. */
-	cedrus_enc_h264_coded_u32(dev, 0x1);
+	cedrus_enc_h264_coded_start_code(dev);
 
 	header = cedrus_enc_h264_nalu_header(CENDRUS_ENC_H264_NALU_TYPE_SPS, 3);
 
@@ -791,11 +810,7 @@ static void cedrus_enc_h264_job_configure_sps(struct cedrus_context *cedrus_ctx)
 	/* Syntax element: seq_parameter_set_id. */
 	cedrus_enc_h264_coded_ue(dev, job->seq_parameter_set_id);
 
-	if (profile_idc == 100 || profile_idc == 110 || profile_idc == 122 ||
-	    profile_idc == 244 || profile_idc == 44 || profile_idc == 83 ||
-	    profile_idc == 86 || profile_idc == 118 || profile_idc == 128 ||
-	    profile_idc == 138 || profile_idc == 139 || profile_idc == 134 ||
-	    profile_idc == 135) {
+	if (cedrus_enc_h264_is_high_profile(profile_idc)) {
 		/* Syntax element: chroma_format_idc, always YUV 4:2:0 (1). */
 		cedrus_enc_h264_coded_ue(dev, 1);
 
@@ -945,7 +960,7 @@ static void cedrus_enc_h264_job_configure_pps(struct cedrus_context *cedrus_ctx)
 	u8 header;
 
 	/* Syntax element: Annex-B start code. */
-	cedrus_enc_h264_coded_u32(dev, 0x1);
+	cedrus_enc_h264_coded_start_code(dev);
 
 	header = cedrus_enc_h264_nalu_header(CENDRUS_ENC_H264_NALU_TYPE_PPS, 3);
 
@@ -997,6 +1012,17 @@ static void cedrus_enc_h264_job_configure_pps(struct cedrus_context *cedrus_ctx)
 	/* Syntax element: redundant_pic_cnt_present_flag. */
 	cedrus_enc_h264_coded_bit(dev, 0);
 
+	if (cedrus_enc_h264_is_high_profile(job->profile_idc)) {
+		/* Syntax element: transform_8x8_mode_flag. */
+		cedrus_enc_h264_coded_bit(dev, 1);
+
+		/* Syntax element: pic_scaling_matrix_present_flag. */
+		cedrus_enc_h264_coded_bit(dev, 0);
+
+		/* Syntax element: second_chroma_qp_index_offset. */
+		cedrus_enc_h264_coded_se(dev, job->chroma_qp_index_offset);
+	}
+
 	/* Syntax element: rbsp_stop_one_bit. */
 	cedrus_enc_h264_coded_bit(dev, 1);
 
@@ -1015,7 +1041,7 @@ cedrus_enc_h264_job_configure_slice_header(struct cedrus_context *cedrus_ctx)
 	u8 header;
 
 	/* Syntax element: Annex-B start code. */
-	cedrus_enc_h264_coded_u32(dev, 0x1);
+	cedrus_enc_h264_coded_start_code(dev);
 
 	if (job->frame_type == CEDRUS_ENC_H264_FRAME_TYPE_IDR)
 		nalu_type = CENDRUS_ENC_H264_NALU_TYPE_SLICE_IDR;
@@ -1105,9 +1131,6 @@ static void cedrus_enc_h264_job_configure_headers(struct cedrus_context *ctx)
 	struct cedrus_enc_h264_state *state = &h264_ctx->state;
 	bool active = true;
 
-	/* Disable emulation-prevention 0x3 byte. */
-	cedrus_enc_h264_coded_eptb(dev, 0);
-
 	while (active) {
 		switch (state->step) {
 		case CEDRUS_ENC_H264_STEP_START:
@@ -1127,9 +1150,6 @@ static void cedrus_enc_h264_job_configure_headers(struct cedrus_context *ctx)
 			break;
 		}
 	}
-
-	/* Enable emulation-prevention 0x3 byte. */
-	cedrus_enc_h264_coded_eptb(dev, 1);
 
 	/* Wait for sync idle. */
 	cedrus_poll(dev, dev->top_reg_offset + VE_RESET_REG,
@@ -1289,11 +1309,15 @@ static int cedrus_enc_h264_job_configure(struct cedrus_context *cedrus_ctx)
 
 	stride_mbs_div_48 = DIV_ROUND_UP(pix_format->bytesperline / 16, 48);
 
-	cedrus_write(dev, VE_ENC_AVC_PARA1_REG,
-		     VE_ENC_AVC_PARA1_QP_CHROMA_OFFSET0(job->chroma_qp_index_offset) |
-		     VE_ENC_AVC_PARA1_STRIDE_MBS_DIV_48(stride_mbs_div_48) |
-		     VE_ENC_AVC_PARA1_RC_MODE_FIXED |
-		     VE_ENC_AVC_PARA1_FIXED_QP(job->qp));
+	value = VE_ENC_AVC_PARA1_QP_CHROMA_OFFSET0(job->chroma_qp_index_offset) |
+		VE_ENC_AVC_PARA1_STRIDE_MBS_DIV_48(stride_mbs_div_48) |
+		VE_ENC_AVC_PARA1_RC_MODE_FIXED |
+		VE_ENC_AVC_PARA1_FIXED_QP(job->qp);
+
+	if (!cedrus_enc_h264_is_high_profile(job->profile_idc))
+		value |= VE_ENC_AVC_PARA1_8X8_TRANS_DIS;
+
+	cedrus_write(dev, VE_ENC_AVC_PARA1_REG, value);
 
 	cedrus_write(dev, VE_ENC_AVC_PARA2_REG, 0);
 
