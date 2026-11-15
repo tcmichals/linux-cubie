@@ -125,7 +125,7 @@
 
 		led-1 {
 			label = "radxa:green:power";
-			gpios = <&pio 9 26 GPIO_ACTIVE_HIGH>; /* PJ26 */
+			gpios = <&pio 9 26 GPIO_ACTIVE_LOW>; /* PJ26 */
 			linux,default-trigger = "default-on";
 			default-state = "on";
 		};
