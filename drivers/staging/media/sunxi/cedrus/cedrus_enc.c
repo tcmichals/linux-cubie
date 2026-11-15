@@ -33,6 +33,7 @@ int cedrus_enc_format_coded_prepare(struct cedrus_context *ctx,
 	struct v4l2_pix_format *pix_format = &format->fmt.pix;
 	struct v4l2_pix_format *pix_format_picture =
 		&ctx->v4l2.format_picture.fmt.pix;
+	u32 min_size;
 
 	/* Coded format dimensions are copied from picture format. */
 	pix_format->width = pix_format_picture->width;
@@ -41,8 +42,10 @@ int cedrus_enc_format_coded_prepare(struct cedrus_context *ctx,
 	/* Zero bytes per line for encoded source. */
 	pix_format->bytesperline = 0;
 
-	/* Choose some minimum size since this can't be 0 */
-	pix_format->sizeimage = max_t(u32, SZ_1K, pix_format->sizeimage);
+	/* Default coded buffer size proportional to the picture resolution. */
+	min_size = ALIGN(pix_format->width * pix_format->height / 2, PAGE_SIZE);
+	min_size = clamp_t(u32, min_size, SZ_64K, SZ_4M);
+	pix_format->sizeimage = max_t(u32, min_size, pix_format->sizeimage);
 
 	pix_format->field = V4L2_FIELD_NONE;
 
@@ -272,6 +275,8 @@ static int cedrus_enc_format_propagate(struct cedrus_context *ctx,
 	ret = cedrus_context_selection_picture_reset(ctx);
 	if (ret)
 		return ret;
+
+	ctx->v4l2.format_coded.fmt.pix.sizeimage = 0;
 
 	return cedrus_proc_format_coded_prepare(ctx, &ctx->v4l2.format_coded);
 }

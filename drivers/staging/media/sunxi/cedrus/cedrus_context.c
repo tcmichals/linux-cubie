@@ -12,6 +12,7 @@
 #include <linux/videodev2.h>
 #include <media/v4l2-ctrls.h>
 #include <media/v4l2-device.h>
+#include <media/v4l2-event.h>
 #include <media/v4l2-fh.h>
 #include <media/v4l2-mem2mem.h>
 #include <media/videobuf2-v4l2.h>
@@ -213,11 +214,33 @@ int cedrus_context_selection_picture_reset(struct cedrus_context *ctx)
 
 /* Job */
 
+static const struct v4l2_event cedrus_context_eos_event = {
+	.type = V4L2_EVENT_EOS,
+};
+
 void cedrus_context_job_finish(struct cedrus_context *ctx, int state)
 {
 	struct cedrus_proc *proc = ctx->proc;
 	struct v4l2_m2m_dev *m2m_dev = proc->dev->v4l2.m2m_dev;
 	struct v4l2_m2m_ctx *m2m_ctx = ctx->v4l2.fh.m2m_ctx;
+
+	if (proc->role == CEDRUS_ROLE_ENCODER) {
+		struct vb2_v4l2_buffer *src_buf =
+			v4l2_m2m_next_src_buf(m2m_ctx);
+		struct vb2_v4l2_buffer *dst_buf =
+			v4l2_m2m_next_dst_buf(m2m_ctx);
+
+		if (src_buf && dst_buf) {
+			dst_buf->flags &= ~V4L2_BUF_FLAG_LAST;
+			if (v4l2_m2m_is_last_draining_src_buf(m2m_ctx,
+							      src_buf)) {
+				dst_buf->flags |= V4L2_BUF_FLAG_LAST;
+				v4l2_event_queue_fh(&ctx->v4l2.fh,
+						    &cedrus_context_eos_event);
+				v4l2_m2m_mark_stopped(m2m_ctx);
+			}
+		}
+	}
 
 	cedrus_engine_job_finish(ctx, state);
 	memset(&ctx->job, 0, sizeof(ctx->job));
@@ -496,9 +519,26 @@ static int cedrus_context_buffer_prepare(struct vb2_buffer *vb2_buffer)
 static void cedrus_context_buffer_queue(struct vb2_buffer *vb2_buffer)
 {
 	struct cedrus_context *ctx = vb2_get_drv_priv(vb2_buffer->vb2_queue);
+	struct v4l2_m2m_ctx *m2m_ctx = ctx->v4l2.fh.m2m_ctx;
 	struct vb2_v4l2_buffer *v4l2_buffer = to_vb2_v4l2_buffer(vb2_buffer);
 
-	v4l2_m2m_buf_queue(ctx->v4l2.fh.m2m_ctx, v4l2_buffer);
+	if (ctx->proc->role == CEDRUS_ROLE_ENCODER &&
+	    V4L2_TYPE_IS_CAPTURE(vb2_buffer->vb2_queue->type) &&
+	    vb2_is_streaming(vb2_buffer->vb2_queue) &&
+	    v4l2_m2m_dst_buf_is_last(m2m_ctx)) {
+		unsigned int i;
+
+		for (i = 0; i < vb2_buffer->num_planes; i++)
+			vb2_set_plane_payload(vb2_buffer, i, 0);
+
+		v4l2_buffer->field = V4L2_FIELD_NONE;
+
+		v4l2_m2m_last_buffer_done(m2m_ctx, v4l2_buffer);
+		v4l2_event_queue_fh(&ctx->v4l2.fh, &cedrus_context_eos_event);
+		return;
+	}
+
+	v4l2_m2m_buf_queue(m2m_ctx, v4l2_buffer);
 }
 
 static int cedrus_context_buffer_validate(struct vb2_buffer *vb2_buffer)
@@ -530,6 +570,10 @@ static int cedrus_context_start_streaming(struct vb2_queue *queue,
 
 	if (WARN_ON(!engine))
 		return -ENODEV;
+
+	if (ctx->proc->role == CEDRUS_ROLE_ENCODER)
+		v4l2_m2m_update_start_streaming_state(ctx->v4l2.fh.m2m_ctx,
+						      queue);
 
 	/* Only start the engine from the coded queue. */
 	if (format_type != CEDRUS_FORMAT_TYPE_CODED)
@@ -593,6 +637,12 @@ static void cedrus_context_stop_streaming(struct vb2_queue *queue)
 	if (WARN_ON(!engine))
 		return;
 
+	cedrus_context_queue_cleanup(queue, true);
+
+	if (ctx->proc->role == CEDRUS_ROLE_ENCODER)
+		v4l2_m2m_update_stop_streaming_state(ctx->v4l2.fh.m2m_ctx,
+						     queue);
+
 	/* Only stop the engine from the coded queue. */
 	if (format_type != CEDRUS_FORMAT_TYPE_CODED)
 		return;
@@ -608,8 +658,6 @@ static void cedrus_context_stop_streaming(struct vb2_queue *queue)
 		kfree(ctx->engine_ctx);
 		ctx->engine_ctx = NULL;
 	}
-
-	cedrus_context_queue_cleanup(queue, true);
 
 	pm_runtime_put(dev);
 }

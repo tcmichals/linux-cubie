@@ -782,10 +782,10 @@ static void cedrus_enc_h264_job_configure_sps(struct cedrus_context *cedrus_ctx)
 	struct cedrus_device *dev = cedrus_ctx->proc->dev;
 	struct cedrus_enc_h264_job *job = cedrus_ctx->engine_job;
 	struct cedrus_enc_h264_context *h264_ctx = cedrus_ctx->engine_ctx;
-	struct v4l2_pix_format *pix_format =
-		&cedrus_ctx->v4l2.format_picture.fmt.pix;
 	struct v4l2_fract *timeperframe = &cedrus_ctx->v4l2.timeperframe_coded;
 	struct v4l2_rect *selection = &cedrus_ctx->v4l2.selection_picture;
+	u32 coded_width = h264_ctx->width_mbs * 16;
+	u32 coded_height = h264_ctx->height_mbs * 16;
 	u32 crop_left, crop_right, crop_top, crop_bottom;
 	u8 profile_idc = job->profile_idc;
 	u8 header;
@@ -854,13 +854,13 @@ static void cedrus_enc_h264_job_configure_sps(struct cedrus_context *cedrus_ctx)
 	/* Syntax element: direct_8x8_inference_flag. */
 	cedrus_enc_h264_coded_bit(dev, 0);
 
-	if (selection->width != pix_format->width ||
-	    selection->height != pix_format->height) {
+	if (selection->width != coded_width ||
+	    selection->height != coded_height) {
 		crop_left = selection->left;
-		crop_right = pix_format->width - selection->width -
+		crop_right = coded_width - selection->width -
 			     selection->left;
 		crop_top = selection->top;
-		crop_bottom = pix_format->height - selection->height -
+		crop_bottom = coded_height - selection->height -
 			      selection->top;
 
 		/* Syntax element: frame_cropping_flag. */
@@ -1692,7 +1692,7 @@ static const struct v4l2_frmsize_stepwise cedrus_enc_h264_frmsize = {
 
 	.min_height	= 16,
 	.max_height	= 4096,
-	.step_height	= 16,
+	.step_height	= 8,
 };
 
 const struct cedrus_engine cedrus_enc_h264 = {

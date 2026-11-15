@@ -612,6 +612,55 @@ static int cedrus_proc_s_parm(struct file *file, void *private,
 	return 0;
 }
 
+static const struct v4l2_event cedrus_proc_eos_event = {
+	.type = V4L2_EVENT_EOS,
+};
+
+static int cedrus_proc_encoder_cmd(struct file *file, void *private,
+				   struct v4l2_encoder_cmd *cmd)
+{
+	struct cedrus_context *ctx = cedrus_file2ctx(file);
+	struct v4l2_m2m_ctx *m2m_ctx = ctx->v4l2.fh.m2m_ctx;
+	int ret;
+
+	ret = v4l2_m2m_ioctl_try_encoder_cmd(file, private, cmd);
+	if (ret < 0)
+		return ret;
+
+	if (!vb2_is_streaming(&m2m_ctx->out_q_ctx.q) &&
+	    !vb2_is_streaming(&m2m_ctx->cap_q_ctx.q))
+		return 0;
+
+	ret = v4l2_m2m_ioctl_encoder_cmd(file, private, cmd);
+	if (ret < 0)
+		return ret;
+
+	if (cmd->cmd == V4L2_ENC_CMD_STOP && v4l2_m2m_has_stopped(m2m_ctx))
+		v4l2_event_queue_fh(&ctx->v4l2.fh, &cedrus_proc_eos_event);
+
+	if (cmd->cmd == V4L2_ENC_CMD_START && v4l2_m2m_has_stopped(m2m_ctx))
+		vb2_clear_last_buffer_dequeued(&m2m_ctx->cap_q_ctx.q);
+
+	return 0;
+}
+
+static int
+cedrus_proc_subscribe_event(struct v4l2_fh *fh,
+			    const struct v4l2_event_subscription *sub)
+{
+	struct cedrus_context *ctx =
+		container_of(fh, struct cedrus_context, v4l2.fh);
+
+	switch (sub->type) {
+	case V4L2_EVENT_EOS:
+		if (ctx->proc->role == CEDRUS_ROLE_ENCODER)
+			return v4l2_event_subscribe(fh, sub, 0, NULL);
+		return -EINVAL;
+	default:
+		return v4l2_ctrl_subscribe_event(fh, sub);
+	}
+}
+
 static const struct v4l2_ioctl_ops cedrus_proc_ioctl_ops = {
 	.vidioc_querycap		= cedrus_proc_querycap,
 
@@ -648,7 +697,10 @@ static const struct v4l2_ioctl_ops cedrus_proc_ioctl_ops = {
 	.vidioc_decoder_cmd		= v4l2_m2m_ioctl_stateless_decoder_cmd,
 	.vidioc_try_decoder_cmd		= v4l2_m2m_ioctl_stateless_try_decoder_cmd,
 
-	.vidioc_subscribe_event		= v4l2_ctrl_subscribe_event,
+	.vidioc_encoder_cmd		= cedrus_proc_encoder_cmd,
+	.vidioc_try_encoder_cmd		= v4l2_m2m_ioctl_try_encoder_cmd,
+
+	.vidioc_subscribe_event		= cedrus_proc_subscribe_event,
 	.vidioc_unsubscribe_event	= v4l2_event_unsubscribe,
 };
 
@@ -782,6 +834,8 @@ static int cedrus_proc_v4l2_setup(struct cedrus_proc *proc)
 		v4l2_disable_ioctl(video_dev, VIDIOC_S_SELECTION);
 		v4l2_disable_ioctl(video_dev, VIDIOC_G_PARM);
 		v4l2_disable_ioctl(video_dev, VIDIOC_S_PARM);
+		v4l2_disable_ioctl(video_dev, VIDIOC_ENCODER_CMD);
+		v4l2_disable_ioctl(video_dev, VIDIOC_TRY_ENCODER_CMD);
 	} else {
 		v4l2_disable_ioctl(video_dev, VIDIOC_DECODER_CMD);
 		v4l2_disable_ioctl(video_dev, VIDIOC_TRY_DECODER_CMD);
