@@ -52,6 +52,7 @@ enum cedrus_capability {
 	CEDRUS_CAPABILITY_H265_10_DEC	= BIT(4),
 	CEDRUS_CAPABILITY_VP8_DEC	= BIT(5),
 	CEDRUS_CAPABILITY_H264_ENC	= BIT(6),
+	CEDRUS_CAPABILITY_H265_ENC	= BIT(7),
 };
 
 struct cedrus_context;

@@ -14,6 +14,7 @@
 #include "cedrus_context.h"
 #include "cedrus_enc.h"
 #include "cedrus_enc_h264.h"
+#include "cedrus_enc_h265.h"
 #include "cedrus_engine.h"
 #include "cedrus_proc.h"
 #include "cedrus_regs.h"
@@ -341,6 +342,7 @@ static int cedrus_enc_size_picture_enum(struct cedrus_context *ctx,
 
 static const struct cedrus_engine *cedrus_enc_engines[] = {
 	&cedrus_enc_h264,
+	&cedrus_enc_h265,
 };
 
 /* Encoder */
