@@ -377,10 +377,21 @@ static int cedrus_enc_h265_setup(struct cedrus_context *cedrus_ctx)
 				V4L2_CID_MPEG_VIDEO_HEVC_I_FRAME_QP);
 	h265_ctx->qp_p = cedrus_context_ctrl_value(cedrus_ctx,
 				V4L2_CID_MPEG_VIDEO_HEVC_P_FRAME_QP);
+	h265_ctx->min_qp = cedrus_context_ctrl_value(cedrus_ctx,
+				V4L2_CID_MPEG_VIDEO_HEVC_MIN_QP);
+	h265_ctx->max_qp = cedrus_context_ctrl_value(cedrus_ctx,
+				V4L2_CID_MPEG_VIDEO_HEVC_MAX_QP);
+	h265_ctx->bitrate_mode = cedrus_context_ctrl_value(cedrus_ctx,
+				V4L2_CID_MPEG_VIDEO_BITRATE_MODE);
+	h265_ctx->bitrate = cedrus_context_ctrl_value(cedrus_ctx,
+				V4L2_CID_MPEG_VIDEO_BITRATE);
 	h265_ctx->gop_closure = cedrus_context_ctrl_value(cedrus_ctx,
 				V4L2_CID_MPEG_VIDEO_GOP_CLOSURE);
 	h265_ctx->gop_size = cedrus_context_ctrl_value(cedrus_ctx,
 				V4L2_CID_MPEG_VIDEO_GOP_SIZE);
+
+	h265_ctx->state.rc_qp = h265_ctx->qp_p;
+	h265_ctx->state.rc_bits_acc = 0;
 
 	return 0;
 }
@@ -460,14 +471,22 @@ static int cedrus_enc_h265_job_prepare(struct cedrus_context *cedrus_ctx)
 	if (h265_ctx->force_key_frame || state->gop_index == 0) {
 		h265_ctx->force_key_frame = false;
 		job->frame_type = CEDRUS_ENC_H265_FRAME_TYPE_IDR;
-		job->qp = h265_ctx->qp_i;
+		if (h265_ctx->bitrate_mode == V4L2_MPEG_VIDEO_BITRATE_MODE_CQ)
+			job->qp = h265_ctx->qp_i;
+		else
+			job->qp = clamp(state->rc_qp - 2,
+					h265_ctx->min_qp, h265_ctx->max_qp);
 		state->poc = 0;
 		job->poc = 0;
 		state->gop_index = 1;
 		v4l2_buffer->flags |= V4L2_BUF_FLAG_KEYFRAME;
 	} else {
 		job->frame_type = CEDRUS_ENC_H265_FRAME_TYPE_P;
-		job->qp = h265_ctx->qp_p;
+		if (h265_ctx->bitrate_mode == V4L2_MPEG_VIDEO_BITRATE_MODE_CQ)
+			job->qp = h265_ctx->qp_p;
+		else
+			job->qp = clamp(state->rc_qp,
+					h265_ctx->min_qp, h265_ctx->max_qp);
 		state->poc = (state->poc + 1) & 0xff;
 		job->poc = state->poc;
 		state->gop_index++;
@@ -629,6 +648,44 @@ static void cedrus_enc_h265_job_trigger(struct cedrus_context *ctx)
 		     VE_ENC_AVC_STARTTRIG_TYPE_ENC_START);
 }
 
+static void cedrus_enc_h265_rc_update(struct cedrus_context *ctx, u32 bytes)
+{
+	struct cedrus_enc_h265_context *h265_ctx = ctx->engine_ctx;
+	struct cedrus_enc_h265_state *state = &h265_ctx->state;
+	struct v4l2_fract *tpf = &ctx->v4l2.timeperframe_coded;
+	s64 target_bits, actual_bits, window;
+	unsigned int fps = 30;
+	int min_qp = h265_ctx->min_qp;
+	int max_qp = max(min_qp, h265_ctx->max_qp);
+
+	if (h265_ctx->bitrate_mode == V4L2_MPEG_VIDEO_BITRATE_MODE_CQ ||
+	    h265_ctx->bitrate <= 0)
+		return;
+
+	if (tpf->numerator && tpf->denominator)
+		fps = max(1U, tpf->denominator / tpf->numerator);
+
+	target_bits = (s64)h265_ctx->bitrate / fps;
+	actual_bits = (s64)bytes * 8;
+	window = (h265_ctx->bitrate_mode == V4L2_MPEG_VIDEO_BITRATE_MODE_CBR) ?
+		 target_bits * 4 : target_bits * 8;
+
+	state->rc_bits_acc = clamp(state->rc_bits_acc + actual_bits - target_bits,
+				   -window, window);
+
+	if (state->rc_bits_acc > target_bits * 2)
+		state->rc_qp += 2;
+	else if (state->rc_bits_acc > target_bits / 2 ||
+		 actual_bits > target_bits * 3 / 2)
+		state->rc_qp += 1;
+	else if (state->rc_bits_acc < -target_bits * 2)
+		state->rc_qp -= 2;
+	else if (state->rc_bits_acc < -target_bits / 2)
+		state->rc_qp -= 1;
+
+	state->rc_qp = clamp(state->rc_qp, min_qp, max_qp);
+}
+
 static void cedrus_enc_h265_job_finish(struct cedrus_context *ctx, int state)
 {
 	struct cedrus_device *dev = ctx->proc->dev;
@@ -647,6 +704,7 @@ static void cedrus_enc_h265_job_finish(struct cedrus_context *ctx, int state)
 	WARN_ON(length > vb2_plane_size(vb2_buffer, 0));
 
 	vb2_set_plane_payload(vb2_buffer, 0, length);
+	cedrus_enc_h265_rc_update(ctx, length);
 }
 
 static int cedrus_enc_h265_irq_status(struct cedrus_context *ctx)
@@ -720,6 +778,18 @@ static int cedrus_enc_h265_ctrl_prepare(struct cedrus_context *cedrus_ctx,
 	case V4L2_CID_MPEG_VIDEO_HEVC_P_FRAME_QP:
 		h265_ctx->qp_p = ctrl->val;
 		break;
+	case V4L2_CID_MPEG_VIDEO_HEVC_MIN_QP:
+		h265_ctx->min_qp = ctrl->val;
+		break;
+	case V4L2_CID_MPEG_VIDEO_HEVC_MAX_QP:
+		h265_ctx->max_qp = ctrl->val;
+		break;
+	case V4L2_CID_MPEG_VIDEO_BITRATE_MODE:
+		h265_ctx->bitrate_mode = ctrl->val;
+		break;
+	case V4L2_CID_MPEG_VIDEO_BITRATE:
+		h265_ctx->bitrate = ctrl->val;
+		break;
 	case V4L2_CID_MPEG_VIDEO_GOP_CLOSURE:
 		h265_ctx->gop_closure = ctrl->val;
 		break;
@@ -767,6 +837,39 @@ static const struct v4l2_ctrl_config cedrus_enc_h265_ctrl_configs[] = {
 		.min		= 0,
 		.max		= 51,
 		.def		= 30,
+		.ops		= &cedrus_context_ctrl_ops,
+	},
+	{
+		.id		= V4L2_CID_MPEG_VIDEO_HEVC_MIN_QP,
+		.step		= 1,
+		.min		= 0,
+		.max		= 51,
+		.def		= 18,
+		.ops		= &cedrus_context_ctrl_ops,
+	},
+	{
+		.id		= V4L2_CID_MPEG_VIDEO_HEVC_MAX_QP,
+		.step		= 1,
+		.min		= 0,
+		.max		= 51,
+		.def		= 45,
+		.ops		= &cedrus_context_ctrl_ops,
+	},
+	{
+		.id		= V4L2_CID_MPEG_VIDEO_BITRATE_MODE,
+		.max		= V4L2_MPEG_VIDEO_BITRATE_MODE_CQ,
+		.def		= V4L2_MPEG_VIDEO_BITRATE_MODE_CQ,
+		.menu_skip_mask	= ~(BIT(V4L2_MPEG_VIDEO_BITRATE_MODE_VBR) |
+				    BIT(V4L2_MPEG_VIDEO_BITRATE_MODE_CBR) |
+				    BIT(V4L2_MPEG_VIDEO_BITRATE_MODE_CQ)),
+		.ops		= &cedrus_context_ctrl_ops,
+	},
+	{
+		.id		= V4L2_CID_MPEG_VIDEO_BITRATE,
+		.step		= 10000,
+		.min		= 100000,
+		.max		= 40000000,
+		.def		= 2000000,
 		.ops		= &cedrus_context_ctrl_ops,
 	},
 };

@@ -33,6 +33,8 @@ struct cedrus_enc_h265_job {
 struct cedrus_enc_h265_state {
 	unsigned int	gop_index;
 	unsigned int	poc;
+	int		rc_qp;
+	s64		rc_bits_acc;
 };
 
 struct cedrus_enc_h265_context {
@@ -56,6 +58,10 @@ struct cedrus_enc_h265_context {
 	int				level;
 	int				qp_i;
 	int				qp_p;
+	int				min_qp;
+	int				max_qp;
+	int				bitrate_mode;
+	int				bitrate;
 	int				gop_closure;
 	int				gop_size;
 	bool				force_key_frame;
