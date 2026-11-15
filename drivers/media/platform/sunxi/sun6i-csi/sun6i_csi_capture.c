@@ -934,7 +934,8 @@ static int sun6i_csi_capture_link_validate(struct media_link *link)
 
 	if (format_info->pixel_enc == V4L2_PIXEL_ENC_YUV) {
 		if (bridge_format->input_format != SUN6I_CSI_INPUT_FMT_YUV420 &&
-		    bridge_format->input_format != SUN6I_CSI_INPUT_FMT_YUV422)
+		    bridge_format->input_format != SUN6I_CSI_INPUT_FMT_YUV422 &&
+		    bridge_format->input_format != SUN6I_CSI_INPUT_FMT_RAW)
 			goto invalid;
 
 		/* YUV420 input can't produce YUV422 output. */
@@ -943,8 +944,9 @@ static int sun6i_csi_capture_link_validate(struct media_link *link)
 			goto invalid;
 	}
 
-	/* With raw input mode, we need a 1:1 match between input and output. */
-	if (bridge_format->input_format == SUN6I_CSI_INPUT_FMT_RAW ||
+	/* With raw input mode for Bayer capture, we need a 1:1 match between input and output. */
+	if ((bridge_format->input_format == SUN6I_CSI_INPUT_FMT_RAW &&
+	     format_info->pixel_enc == V4L2_PIXEL_ENC_BAYER) ||
 	    capture_format->input_format_raw) {
 		match = sun6i_csi_capture_format_match(pixelformat, mbus_code);
 		if (!match)

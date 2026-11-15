@@ -819,8 +819,9 @@
 			reg = <0x05800800 0x200>,
 			      <0x05821000 0x1000>,
 			      <0x05830000 0x1000>,
-			      <0x05800000 0x800>;
-			reg-names = "top", "parser", "dma", "ccu";
+			      <0x05800000 0x800>,
+			      <0x05910000 0x100>;
+			reg-names = "top", "parser", "dma", "ccu", "vipp";
 
 			interrupts = <GIC_SPI 117 IRQ_TYPE_LEVEL_HIGH>;
 			power-domains = <&pck600 PD_VI>;
@@ -846,6 +847,38 @@
 
 					csi_in_mipi1: endpoint {
 						remote-endpoint = <&mipi1_out_csi>;
+					};
+				};
+
+				csi_out: port@2 {
+					reg = <2>;
+
+					csi_out_isp: endpoint {
+						remote-endpoint = <&isp_in_csi>;
+					};
+				};
+			};
+		};
+
+		isp: isp@5900000 {
+			compatible = "allwinner,sun60i-a733-isp";
+			reg = <0x05900000 0x1300>;
+			interrupts = <GIC_SPI 129 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&ccu CLK_ISP>,
+				 <&ccu CLK_MBUS_ISP>;
+			clock-names = "mod", "ram";
+			power-domains = <&pck600 PD_VI>;
+			status = "okay";
+
+			ports {
+				#address-cells = <1>;
+				#size-cells = <0>;
+
+				port@0 {
+					reg = <0>;
+
+					isp_in_csi: endpoint {
+						remote-endpoint = <&csi_out_isp>;
 					};
 				};
 			};

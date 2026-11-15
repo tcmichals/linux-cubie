@@ -53,6 +53,7 @@ struct sun55i_a523_csi {
 	void __iomem		*top_base;
 	void __iomem		*parser_base;
 	void __iomem		*dma_base;
+	void __iomem		*vipp_base;
 
 	struct clk		*clock_bus;
 	struct clk		*clock_top;
@@ -144,6 +145,12 @@ sun55i_a523_csi_resources_setup(struct sun6i_csi_device *csi_dev,
 		devm_platform_ioremap_resource_byname(platform_dev, "ccu");
 	if (IS_ERR(a523->ccu_base))
 		return PTR_ERR(a523->ccu_base);
+
+	/* VIPP is optional; used for online scaler/bypass in YUV pipelines */
+	a523->vipp_base =
+		devm_platform_ioremap_resource_byname(platform_dev, "vipp");
+	if (IS_ERR(a523->vipp_base))
+		a523->vipp_base = NULL;
 
 	a523->clock_bus = devm_clk_get(dev, "bus");
 	if (IS_ERR(a523->clock_bus))
@@ -326,12 +333,22 @@ sun55i_a523_csi_runtime_suspend(struct sun6i_csi_device *csi_dev)
 #define SUN55I_A523_CSI_DMA_CH0_CFG		0x204
 #define SUN55I_A523_CSI_DMA_CH0_HSIZE		0x210
 #define SUN55I_A523_CSI_DMA_CH0_VSIZE		0x214
-#define SUN55I_A523_CSI_DMA_CH0_BUF_LEN	0x238
 #define SUN55I_A523_CSI_DMA_CH0_F0_BUFA		0x220
+#define SUN55I_A523_CSI_DMA_CH0_F1_BUFA		0x228
+#define SUN55I_A523_CSI_DMA_CH0_BUF_LEN	0x238
 #define SUN55I_A523_CSI_DMA_CH0_FLIP_SIZE	0x23c
 
 #define SUN55I_A523_CSI_DMA_CFG_FIELD_EITHER	(2 << 10)
 #define SUN55I_A523_CSI_DMA_CFG_RAW10		(1 << 16)
+#define SUN55I_A523_CSI_DMA_CFG_NV12		(5 << 16)
+
+#define SUN55I_A523_VIPP_TOP_EN			0x000
+#define SUN55I_A523_VIPP_CLK_GATING_EN		BIT(0)
+#define SUN55I_A523_VIPP_CAP_EN			BIT(1)
+
+#define SUN55I_A523_VIPP_CH0_CTRL		0x040
+#define SUN55I_A523_VIPP_CHN_CAP_EN		BIT(0)
+#define SUN55I_A523_VIPP_BYPASS_MODE		BIT(4)
 
 static void
 sun55i_a523_csi_capture_configure(struct sun6i_csi_device *csi_dev)
@@ -350,6 +367,14 @@ sun55i_a523_csi_capture_configure(struct sun6i_csi_device *csi_dev)
 	case V4L2_PIX_FMT_SGBRG10:
 	case V4L2_PIX_FMT_SGRBG10:
 	case V4L2_PIX_FMT_SRGGB10:
+		stride = width * 2;
+		value = SUN55I_A523_CSI_DMA_CFG_FIELD_EITHER |
+			SUN55I_A523_CSI_DMA_CFG_RAW10;
+		break;
+	case V4L2_PIX_FMT_NV12:
+		stride = width;
+		value = SUN55I_A523_CSI_DMA_CFG_FIELD_EITHER |
+			SUN55I_A523_CSI_DMA_CFG_NV12;
 		break;
 	default:
 		dev_warn(csi_dev->dev,
@@ -358,10 +383,6 @@ sun55i_a523_csi_capture_configure(struct sun6i_csi_device *csi_dev)
 		return;
 	}
 
-	stride = width * 2;
-
-	value = SUN55I_A523_CSI_DMA_CFG_FIELD_EITHER |
-		SUN55I_A523_CSI_DMA_CFG_RAW10;
 	writel(value, a523->dma_base + SUN55I_A523_CSI_DMA_CH0_CFG);
 
 	writel(width << 16,
@@ -381,12 +402,24 @@ sun55i_a523_csi_buffer_configure(struct sun6i_csi_device *csi_dev,
 {
 	struct sun55i_a523_csi *a523 = csi_dev->priv;
 	struct vb2_buffer *vb2_buffer = &csi_buffer->v4l2_buffer.vb2_buf;
+	unsigned int width, height;
+	u32 pixelformat;
 	dma_addr_t address;
 
 	address = vb2_dma_contig_plane_dma_addr(vb2_buffer, 0);
 
 	writel(address >> 2,
 	       a523->dma_base + SUN55I_A523_CSI_DMA_CH0_F0_BUFA);
+
+	sun6i_csi_capture_dimensions(csi_dev, &width, &height);
+	sun6i_csi_capture_format(csi_dev, &pixelformat, NULL);
+
+	if (pixelformat == V4L2_PIX_FMT_NV12) {
+		dma_addr_t uv_address = address + width * height;
+
+		writel(uv_address >> 2,
+		       a523->dma_base + SUN55I_A523_CSI_DMA_CH0_F1_BUFA);
+	}
 }
 
 #define SUN55I_A523_CSI_TOP_EN_REG		0x000
@@ -478,6 +511,14 @@ static void sun55i_a523_csi_bridge_enable(struct sun6i_csi_device *csi_dev)
 	value |= SUN55I_A523_CSI_DMA_EN;
 	writel(value, a523->dma_base + SUN55I_A523_CSI_DMA_CH0_EN);
 
+	/* Enable VIPP in bypass mode if mapped */
+	if (a523->vipp_base) {
+		writel(SUN55I_A523_VIPP_CLK_GATING_EN | SUN55I_A523_VIPP_CAP_EN,
+		       a523->vipp_base + SUN55I_A523_VIPP_TOP_EN);
+		writel(SUN55I_A523_VIPP_CHN_CAP_EN | SUN55I_A523_VIPP_BYPASS_MODE,
+		       a523->vipp_base + SUN55I_A523_VIPP_CH0_CTRL);
+	}
+
 	/* Tina/vendor parser reset toggle sequence */
 	writel(BIT(15) | BIT(0), a523->parser_base + SUN55I_A523_CSI_PRS_EN);
 	writel(BIT(15), a523->parser_base + SUN55I_A523_CSI_PRS_EN);
@@ -500,6 +541,11 @@ static void sun55i_a523_csi_bridge_disable(struct sun6i_csi_device *csi_dev)
 	value = readl(a523->dma_base + SUN55I_A523_CSI_DMA_TOP_EN);
 	value &= ~SUN55I_A523_CSI_DMA_EN;
 	writel(value, a523->dma_base + SUN55I_A523_CSI_DMA_TOP_EN);
+
+	if (a523->vipp_base) {
+		writel(0, a523->vipp_base + SUN55I_A523_VIPP_CH0_CTRL);
+		writel(0, a523->vipp_base + SUN55I_A523_VIPP_TOP_EN);
+	}
 
 	writel(0, a523->parser_base + SUN55I_A523_CSI_PRS_CAP);
 	writel(0, a523->parser_base + SUN55I_A523_CSI_PRS_EN);

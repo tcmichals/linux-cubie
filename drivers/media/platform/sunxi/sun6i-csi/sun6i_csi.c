@@ -54,9 +54,10 @@ static int sun6i_csi_isp_detect(struct sun6i_csi_device *csi_dev)
 
 	fwnode_handle_put(handle);
 
-	if (!IS_ENABLED(CONFIG_VIDEO_SUN6I_ISP)) {
-		dev_warn(dev,
-			 "ISP link is detected but not enabled in kernel config!");
+	if (!IS_ENABLED(CONFIG_VIDEO_SUN6I_ISP) ||
+	    csi_dev->variant == &sun55i_a523_csi_variant) {
+		dev_dbg(dev,
+			"ISP link detected, but A523/A733 CSI owns capture device\n");
 		return 0;
 	}
 
