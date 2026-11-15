@@ -90,9 +90,36 @@
 #define ISP_LOAD_VIN_CFG0		0x0170
 #define ISP_LOAD_CH0_EXPAND_CFG0	0x0198
 
+/* BLC, WB, and CCM offsets within load buffer */
+#define ISP_LOAD_BLC_OFFSET0		0x0398
+#define ISP_LOAD_BLC_OFFSET1		0x039c
+#define ISP_LOAD_WB_GAIN0		0x03a0
+#define ISP_LOAD_WB_GAIN1		0x03a4
+#define ISP_LOAD_CCM_M0			0x04d0
+#define ISP_LOAD_CCM_M1			0x04d4
+#define ISP_LOAD_CCM_M2			0x04d8
+#define ISP_LOAD_CCM_M3			0x04dc
+#define ISP_LOAD_CCM_M4			0x04e0
+#define ISP_LOAD_CCM_OFF		0x04e4
+
+/* ISP_LOAD_MODULE_BYPASS1 (+0x0134) enable bits */
+#define ISP_MOD1_BLC_EN			BIT(6)
+#define ISP_MOD1_WB_EN			BIT(7)
+#define ISP_MOD1_CCM_EN			BIT(14)
+#define ISP_MOD1_GAMMA_EN		BIT(17)
+#define ISP_MOD1_AE_EN			BIT(24)
+#define ISP_MOD1_AF_EN			BIT(25)
+#define ISP_MOD1_AWB_EN			BIT(26)
+#define ISP_MOD1_HIST_EN		BIT(27)
+
 /* Load Buffer Table Offsets (within ISP_LOAD_DRAM_SIZE = 0x7700) */
 #define ISP_LOAD_GAMMA_OFFSET		0x5000
 #define ISP_GAMMA_TBL_LEN		1024
+
+/* Save Buffer Statistics Offsets (within ISP_SAVE_DRAM_SIZE = 0x6a00) */
+#define ISP_SAVE_STAT_AE_OFS		0x0100
+#define ISP_SAVE_STAT_AWB_OFS		0x4080
+#define ISP_SAVE_STAT_HIST0_OFS		0x5a80
 
 /* Save-Load Buffer DRAM Layout */
 #define ISP_SAVE_LOAD_RANDOM_SEED	0x0030

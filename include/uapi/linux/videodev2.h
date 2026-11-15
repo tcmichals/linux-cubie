@@ -878,6 +878,10 @@ struct v4l2_pix_format {
 
 /* Vendor specific - used for C3_ISP */
 #define V4L2_META_FMT_C3ISP_PARAMS	v4l2_fourcc('C', '3', 'P', 'M') /* Amlogic C3 ISP Parameters */
+
+/* Vendor specific - used for Allwinner sun60i-isp (ISP 602) */
+#define V4L2_META_FMT_SUN60I_ISP_PARAMS	v4l2_fourcc('S', '6', '0', 'P') /* Allwinner ISP 602 Parameters */
+#define V4L2_META_FMT_SUN60I_ISP_STAT	v4l2_fourcc('S', '6', '0', 'S') /* Allwinner ISP 602 Statistics */
 #define V4L2_META_FMT_C3ISP_STATS	v4l2_fourcc('C', '3', 'S', 'T') /* Amlogic C3 ISP Statistics */
 
 /* Vendor specific - used for RaspberryPi PiSP */

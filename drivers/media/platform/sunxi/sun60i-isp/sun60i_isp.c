@@ -23,7 +23,9 @@
 #include <media/v4l2-device.h>
 #include <media/v4l2-event.h>
 #include <media/v4l2-fwnode.h>
+#include <media/v4l2-ioctl.h>
 #include <media/v4l2-subdev.h>
+#include <media/videobuf2-vmalloc.h>
 
 #include "sun60i_isp.h"
 #include "sun60i_isp_reg.h"
@@ -44,6 +46,138 @@ static const struct sun60i_isp_variant sun55i_a523_isp_var = {
 	},
 };
 
+static void sun60i_isp_apply_params(void *load,
+				    const struct sun60i_isp_params_cfg *cfg,
+				    bool *gamma_updated)
+{
+	u32 val;
+
+	if (cfg->version != SUN60I_ISP_PARAM_API_V1)
+		return;
+
+	if (cfg->module_en_update) {
+		val = readl((u8 *)load + ISP_LOAD_MODULE_BYPASS1);
+		if (cfg->module_en_update & SUN60I_ISP_MOD_BLC) {
+			if (cfg->module_ens & SUN60I_ISP_MOD_BLC)
+				val |= ISP_MOD1_BLC_EN;
+			else
+				val &= ~ISP_MOD1_BLC_EN;
+		}
+		if (cfg->module_en_update & SUN60I_ISP_MOD_WB) {
+			if (cfg->module_ens & SUN60I_ISP_MOD_WB)
+				val |= ISP_MOD1_WB_EN;
+			else
+				val &= ~ISP_MOD1_WB_EN;
+		}
+		if (cfg->module_en_update & SUN60I_ISP_MOD_CCM) {
+			if (cfg->module_ens & SUN60I_ISP_MOD_CCM)
+				val |= ISP_MOD1_CCM_EN;
+			else
+				val &= ~ISP_MOD1_CCM_EN;
+		}
+		if (cfg->module_en_update & SUN60I_ISP_MOD_GAMMA) {
+			if (cfg->module_ens & SUN60I_ISP_MOD_GAMMA)
+				val |= ISP_MOD1_GAMMA_EN;
+			else
+				val &= ~ISP_MOD1_GAMMA_EN;
+		}
+		writel(val, (u8 *)load + ISP_LOAD_MODULE_BYPASS1);
+	}
+
+	if (cfg->module_cfg_update & SUN60I_ISP_MOD_BLC) {
+		val = readl((u8 *)load + ISP_LOAD_BLC_OFFSET0) & 0xe000e000;
+		val |= ((u32)(cfg->blc.gr & 0x1fff) << 16) | (cfg->blc.r & 0x1fff);
+		writel(val, (u8 *)load + ISP_LOAD_BLC_OFFSET0);
+
+		val = readl((u8 *)load + ISP_LOAD_BLC_OFFSET1) & 0xe000e000;
+		val |= ((u32)(cfg->blc.b & 0x1fff) << 16) | (cfg->blc.gb & 0x1fff);
+		writel(val, (u8 *)load + ISP_LOAD_BLC_OFFSET1);
+	}
+
+	if (cfg->module_cfg_update & SUN60I_ISP_MOD_WB) {
+		val = readl((u8 *)load + ISP_LOAD_WB_GAIN0) & 0xf000f000;
+		val |= ((u32)(cfg->wb.gr & 0xfff) << 16) | (cfg->wb.r & 0xfff);
+		writel(val, (u8 *)load + ISP_LOAD_WB_GAIN0);
+
+		val = readl((u8 *)load + ISP_LOAD_WB_GAIN1) & 0xf000f000;
+		val |= ((u32)(cfg->wb.b & 0xfff) << 16) | (cfg->wb.gb & 0xfff);
+		writel(val, (u8 *)load + ISP_LOAD_WB_GAIN1);
+	}
+
+	if (cfg->module_cfg_update & SUN60I_ISP_MOD_CCM) {
+		const s16 *c = cfg->ccm.coeff;
+		const s16 *o = cfg->ccm.offset;
+
+		val = readl((u8 *)load + ISP_LOAD_CCM_M0) & 0xf000f000;
+		val |= ((u32)(c[1] & 0xfff) << 16) | (c[0] & 0xfff);
+		writel(val, (u8 *)load + ISP_LOAD_CCM_M0);
+
+		val = readl((u8 *)load + ISP_LOAD_CCM_M1) & 0xf000f000;
+		val |= ((u32)(c[3] & 0xfff) << 16) | (c[2] & 0xfff);
+		writel(val, (u8 *)load + ISP_LOAD_CCM_M1);
+
+		val = readl((u8 *)load + ISP_LOAD_CCM_M2) & 0xf000f000;
+		val |= ((u32)(c[5] & 0xfff) << 16) | (c[4] & 0xfff);
+		writel(val, (u8 *)load + ISP_LOAD_CCM_M2);
+
+		val = readl((u8 *)load + ISP_LOAD_CCM_M3) & 0xf000f000;
+		val |= ((u32)(c[7] & 0xfff) << 16) | (c[6] & 0xfff);
+		writel(val, (u8 *)load + ISP_LOAD_CCM_M3);
+
+		val = readl((u8 *)load + ISP_LOAD_CCM_M4) & 0xe000f000;
+		val |= ((u32)(o[0] & 0x1fff) << 16) | (c[8] & 0xfff);
+		writel(val, (u8 *)load + ISP_LOAD_CCM_M4);
+
+		val = readl((u8 *)load + ISP_LOAD_CCM_OFF) & 0xe000e000;
+		val |= ((u32)(o[2] & 0x1fff) << 16) | (o[1] & 0x1fff);
+		writel(val, (u8 *)load + ISP_LOAD_CCM_OFF);
+	}
+
+	if (cfg->module_cfg_update & SUN60I_ISP_MOD_GAMMA) {
+		u32 *gamma = (u32 *)((u8 *)load + ISP_LOAD_GAMMA_OFFSET);
+		u32 i;
+
+		for (i = 0; i < ISP_GAMMA_TBL_LEN; i++) {
+			u32 r = min_t(u32, cfg->gamma.lut_r[i], 1023);
+			u32 g = min_t(u32, cfg->gamma.lut_g[i], 1023);
+			u32 b = min_t(u32, cfg->gamma.lut_b[i], 1023);
+
+			gamma[i] = r | (g << 10) | (b << 20);
+		}
+		*gamma_updated = true;
+	}
+}
+
+/* Must be called with isp->lock held */
+static void sun60i_isp_stage_next_params(struct sun60i_isp_dev *isp)
+{
+	struct sun60i_isp_meta_buf *mbuf;
+	struct sun60i_isp_params_cfg *cfg;
+	bool gamma_updated = false;
+	int next;
+
+	if (isp->params_pending || list_empty(&isp->params.buf_list))
+		return;
+
+	mbuf = list_first_entry(&isp->params.buf_list,
+				struct sun60i_isp_meta_buf, list);
+	list_del(&mbuf->list);
+
+	cfg = vb2_plane_vaddr(&mbuf->vb.vb2_buf, 0);
+	if (cfg && vb2_get_plane_payload(&mbuf->vb.vb2_buf, 0) >= sizeof(*cfg)) {
+		next = isp->active_load_idx ^ 1;
+		memcpy(isp->load_buf[next], isp->load_buf[isp->active_load_idx],
+		       ISP_LOAD_DRAM_SIZE);
+		sun60i_isp_apply_params(isp->load_buf[next], cfg, &gamma_updated);
+		isp->params_pending = true;
+		isp->gamma_pending = gamma_updated;
+	}
+
+	mbuf->vb.sequence = isp->frame_count;
+	mbuf->vb.vb2_buf.timestamp = ktime_get_ns();
+	vb2_buffer_done(&mbuf->vb.vb2_buf, VB2_BUF_STATE_DONE);
+}
+
 static irqreturn_t sun60i_isp_irq_handler(int irq, void *dev_id)
 {
 	struct sun60i_isp_dev *isp = dev_id;
@@ -55,15 +189,62 @@ static irqreturn_t sun60i_isp_irq_handler(int irq, void *dev_id)
 
 	writel(status, isp->regs + ISP_INT_STATUS_REG);
 
-	if (status & ISP_IRQ_PARA_SAVE)
+	spin_lock(&isp->lock);
+
+	if (status & ISP_IRQ_PARA_SAVE) {
 		isp->frame_count++;
 
+		if (!list_empty(&isp->stats.buf_list)) {
+			struct sun60i_isp_meta_buf *sbuf;
+			struct sun60i_isp_stat_buffer *dst;
+
+			sbuf = list_first_entry(&isp->stats.buf_list,
+						struct sun60i_isp_meta_buf, list);
+			list_del(&sbuf->list);
+
+			dst = vb2_plane_vaddr(&sbuf->vb.vb2_buf, 0);
+			if (dst) {
+				dst->version = SUN60I_ISP_STAT_API_V1;
+				dst->frame_id = (u32)isp->frame_count;
+				memcpy(dst->ae,
+				       (u8 *)isp->save_buf + ISP_SAVE_STAT_AE_OFS,
+				       SUN60I_ISP_STAT_AE_SIZE);
+				memcpy(dst->awb,
+				       (u8 *)isp->save_buf + ISP_SAVE_STAT_AWB_OFS,
+				       SUN60I_ISP_STAT_AWB_SIZE);
+				memcpy(dst->hist0,
+				       (u8 *)isp->save_buf + ISP_SAVE_STAT_HIST0_OFS,
+				       SUN60I_ISP_STAT_HIST0_SIZE);
+				vb2_set_plane_payload(&sbuf->vb.vb2_buf, 0,
+						      sizeof(*dst));
+			}
+			sbuf->vb.sequence = isp->frame_count - 1;
+			sbuf->vb.vb2_buf.timestamp = ktime_get_ns();
+			vb2_buffer_done(&sbuf->vb.vb2_buf, VB2_BUF_STATE_DONE);
+		}
+	}
+
 	if (status & ISP_IRQ_PARA_LOAD) {
-		/* Re-arm parameter ready for online continuous streaming */
 		u32 val = readl(isp->regs + ISP_AHB_CFG0_REG);
+
+		sun60i_isp_stage_next_params(isp);
+		if (isp->params_pending) {
+			int next = isp->active_load_idx ^ 1;
+
+			writel(isp->load_dma[next] >> 2,
+			       isp->regs + ISP_LOAD_ADDR_REG);
+			isp->active_load_idx = next;
+			isp->params_pending = false;
+			if (isp->gamma_pending) {
+				val |= ISP_AHB_GAMMA_UPDATE;
+				isp->gamma_pending = false;
+			}
+		}
 		val |= ISP_AHB_PARA_READY;
 		writel(val, isp->regs + ISP_AHB_CFG0_REG);
 	}
+
+	spin_unlock(&isp->lock);
 
 	if (unlikely(status & ISP_IRQ_ERRORS)) {
 		dev_warn_ratelimited(isp->dev,
@@ -120,10 +301,10 @@ static void sun60i_isp_init_load_buffer(struct sun60i_isp_dev *isp,
 	/* 6. Channel 0: 10-bit input (bits 8:4 = 10) -> 12-bit internal (bits 20:16 = 12) */
 	writel(0x000c00a0, (u8 *)load + ISP_LOAD_CH0_EXPAND_CFG0);
 
-	/* 7. Clear D3D enable and enable Gamma LUT in module bypass registers */
+	/* 7. Clear D3D enable and enable Gamma + AE/AWB/HIST statistics */
 	val = readl((u8 *)load + ISP_LOAD_MODULE_BYPASS1);
 	val &= ~BIT(5);
-	val |= BIT(17);
+	val |= ISP_MOD1_GAMMA_EN | ISP_MOD1_AE_EN;
 	writel(val, (u8 *)load + ISP_LOAD_MODULE_BYPASS1);
 
 	/* 7b. Populate 10-bit packed RGB Gamma LUT (gamma ~2.0 via int_sqrt) */
@@ -176,6 +357,26 @@ static int sun60i_isp_s_stream(struct v4l2_subdev *sd, int enable)
 
 		sun60i_isp_init_load_buffer(isp, isp->format.width,
 					    isp->format.height);
+		isp->active_load_idx = 0;
+		isp->params_pending = false;
+		isp->gamma_pending = false;
+
+		/* Apply any pre-queued params buffer before frame 0 */
+		if (!list_empty(&isp->params.buf_list)) {
+			struct sun60i_isp_meta_buf *mbuf;
+			struct sun60i_isp_params_cfg *cfg;
+			bool dummy = false;
+
+			mbuf = list_first_entry(&isp->params.buf_list,
+						struct sun60i_isp_meta_buf, list);
+			list_del(&mbuf->list);
+			cfg = vb2_plane_vaddr(&mbuf->vb.vb2_buf, 0);
+			if (cfg && vb2_get_plane_payload(&mbuf->vb.vb2_buf, 0) >= sizeof(*cfg))
+				sun60i_isp_apply_params(isp->load_buf[0], cfg, &dummy);
+			mbuf->vb.sequence = 0;
+			mbuf->vb.vb2_buf.timestamp = ktime_get_ns();
+			vb2_buffer_done(&mbuf->vb.vb2_buf, VB2_BUF_STATE_DONE);
+		}
 
 		/* Configure base physical addresses (>> 2 shift required by hardware) */
 		writel(isp->save_dma >> 2, isp->regs + ISP_SAVE_ADDR_REG);
@@ -328,6 +529,301 @@ static const struct v4l2_subdev_ops sun60i_isp_subdev_ops = {
 	.pad = &sun60i_isp_pad_ops,
 };
 
+/* --- Metadata Video Nodes: Parameters (META_OUTPUT) & Statistics (META_CAPTURE) --- */
+
+static int sun60i_isp_meta_querycap(struct file *file, void *priv,
+				    struct v4l2_capability *cap)
+{
+	struct video_device *vdev = video_devdata(file);
+
+	strscpy(cap->driver, SUN60I_ISP_NAME, sizeof(cap->driver));
+	strscpy(cap->card, vdev->name, sizeof(cap->card));
+	snprintf(cap->bus_info, sizeof(cap->bus_info), "platform:%s",
+		 SUN60I_ISP_NAME);
+	return 0;
+}
+
+static int sun60i_isp_params_enum_fmt(struct file *file, void *priv,
+				      struct v4l2_fmtdesc *f)
+{
+	if (f->index > 0 || f->type != V4L2_BUF_TYPE_META_OUTPUT)
+		return -EINVAL;
+	f->pixelformat = V4L2_META_FMT_SUN60I_ISP_PARAMS;
+	return 0;
+}
+
+static int sun60i_isp_params_g_fmt(struct file *file, void *priv,
+				   struct v4l2_format *f)
+{
+	if (f->type != V4L2_BUF_TYPE_META_OUTPUT)
+		return -EINVAL;
+	f->fmt.meta.dataformat = V4L2_META_FMT_SUN60I_ISP_PARAMS;
+	f->fmt.meta.buffersize = sizeof(struct sun60i_isp_params_cfg);
+	return 0;
+}
+
+static int sun60i_isp_stats_enum_fmt(struct file *file, void *priv,
+				     struct v4l2_fmtdesc *f)
+{
+	if (f->index > 0 || f->type != V4L2_BUF_TYPE_META_CAPTURE)
+		return -EINVAL;
+	f->pixelformat = V4L2_META_FMT_SUN60I_ISP_STAT;
+	return 0;
+}
+
+static int sun60i_isp_stats_g_fmt(struct file *file, void *priv,
+				  struct v4l2_format *f)
+{
+	if (f->type != V4L2_BUF_TYPE_META_CAPTURE)
+		return -EINVAL;
+	f->fmt.meta.dataformat = V4L2_META_FMT_SUN60I_ISP_STAT;
+	f->fmt.meta.buffersize = sizeof(struct sun60i_isp_stat_buffer);
+	return 0;
+}
+
+static const struct v4l2_ioctl_ops sun60i_isp_params_ioctl_ops = {
+	.vidioc_querycap = sun60i_isp_meta_querycap,
+	.vidioc_enum_fmt_meta_out = sun60i_isp_params_enum_fmt,
+	.vidioc_g_fmt_meta_out = sun60i_isp_params_g_fmt,
+	.vidioc_s_fmt_meta_out = sun60i_isp_params_g_fmt,
+	.vidioc_try_fmt_meta_out = sun60i_isp_params_g_fmt,
+	.vidioc_reqbufs = vb2_ioctl_reqbufs,
+	.vidioc_querybuf = vb2_ioctl_querybuf,
+	.vidioc_qbuf = vb2_ioctl_qbuf,
+	.vidioc_dqbuf = vb2_ioctl_dqbuf,
+	.vidioc_create_bufs = vb2_ioctl_create_bufs,
+	.vidioc_prepare_buf = vb2_ioctl_prepare_buf,
+	.vidioc_streamon = vb2_ioctl_streamon,
+	.vidioc_streamoff = vb2_ioctl_streamoff,
+};
+
+static const struct v4l2_ioctl_ops sun60i_isp_stats_ioctl_ops = {
+	.vidioc_querycap = sun60i_isp_meta_querycap,
+	.vidioc_enum_fmt_meta_cap = sun60i_isp_stats_enum_fmt,
+	.vidioc_g_fmt_meta_cap = sun60i_isp_stats_g_fmt,
+	.vidioc_s_fmt_meta_cap = sun60i_isp_stats_g_fmt,
+	.vidioc_try_fmt_meta_cap = sun60i_isp_stats_g_fmt,
+	.vidioc_reqbufs = vb2_ioctl_reqbufs,
+	.vidioc_querybuf = vb2_ioctl_querybuf,
+	.vidioc_qbuf = vb2_ioctl_qbuf,
+	.vidioc_dqbuf = vb2_ioctl_dqbuf,
+	.vidioc_create_bufs = vb2_ioctl_create_bufs,
+	.vidioc_prepare_buf = vb2_ioctl_prepare_buf,
+	.vidioc_streamon = vb2_ioctl_streamon,
+	.vidioc_streamoff = vb2_ioctl_streamoff,
+};
+
+static const struct v4l2_file_operations sun60i_isp_meta_fops = {
+	.owner = THIS_MODULE,
+	.open = v4l2_fh_open,
+	.release = vb2_fop_release,
+	.poll = vb2_fop_poll,
+	.unlocked_ioctl = video_ioctl2,
+	.mmap = vb2_fop_mmap,
+};
+
+static int sun60i_isp_meta_queue_setup(struct vb2_queue *q,
+				       unsigned int *num_buffers,
+				       unsigned int *num_planes,
+				       unsigned int sizes[],
+				       struct device *alloc_devs[])
+{
+	unsigned int size = (q->type == V4L2_BUF_TYPE_META_OUTPUT) ?
+			    sizeof(struct sun60i_isp_params_cfg) :
+			    sizeof(struct sun60i_isp_stat_buffer);
+
+	if (*num_planes)
+		return sizes[0] < size ? -EINVAL : 0;
+
+	*num_planes = 1;
+	sizes[0] = size;
+	return 0;
+}
+
+static int sun60i_isp_meta_buf_prepare(struct vb2_buffer *vb)
+{
+	unsigned int size = (vb->vb2_queue->type == V4L2_BUF_TYPE_META_OUTPUT) ?
+			    sizeof(struct sun60i_isp_params_cfg) :
+			    sizeof(struct sun60i_isp_stat_buffer);
+
+	if (vb2_plane_size(vb, 0) < size)
+		return -EINVAL;
+
+	if (vb->vb2_queue->type == V4L2_BUF_TYPE_META_CAPTURE)
+		vb2_set_plane_payload(vb, 0, size);
+
+	return 0;
+}
+
+static void sun60i_isp_params_buf_queue(struct vb2_buffer *vb)
+{
+	struct vb2_v4l2_buffer *vbuf = to_vb2_v4l2_buffer(vb);
+	struct sun60i_isp_meta_buf *mbuf =
+		container_of(vbuf, struct sun60i_isp_meta_buf, vb);
+	struct sun60i_isp_dev *isp = vb2_get_drv_priv(vb->vb2_queue);
+	unsigned long flags;
+
+	spin_lock_irqsave(&isp->lock, flags);
+	list_add_tail(&mbuf->list, &isp->params.buf_list);
+	spin_unlock_irqrestore(&isp->lock, flags);
+}
+
+static void sun60i_isp_stats_buf_queue(struct vb2_buffer *vb)
+{
+	struct vb2_v4l2_buffer *vbuf = to_vb2_v4l2_buffer(vb);
+	struct sun60i_isp_meta_buf *mbuf =
+		container_of(vbuf, struct sun60i_isp_meta_buf, vb);
+	struct sun60i_isp_dev *isp = vb2_get_drv_priv(vb->vb2_queue);
+	unsigned long flags;
+
+	spin_lock_irqsave(&isp->lock, flags);
+	list_add_tail(&mbuf->list, &isp->stats.buf_list);
+	spin_unlock_irqrestore(&isp->lock, flags);
+}
+
+static void sun60i_isp_meta_stop_streaming(struct vb2_queue *q)
+{
+	struct sun60i_isp_dev *isp = vb2_get_drv_priv(q);
+	struct list_head *head = (q->type == V4L2_BUF_TYPE_META_OUTPUT) ?
+				 &isp->params.buf_list : &isp->stats.buf_list;
+	struct sun60i_isp_meta_buf *mbuf, *tmp;
+	unsigned long flags;
+
+	spin_lock_irqsave(&isp->lock, flags);
+	list_for_each_entry_safe(mbuf, tmp, head, list) {
+		list_del(&mbuf->list);
+		vb2_buffer_done(&mbuf->vb.vb2_buf, VB2_BUF_STATE_ERROR);
+	}
+	spin_unlock_irqrestore(&isp->lock, flags);
+}
+
+static const struct vb2_ops sun60i_isp_params_vb2_ops = {
+	.queue_setup = sun60i_isp_meta_queue_setup,
+	.buf_prepare = sun60i_isp_meta_buf_prepare,
+	.buf_queue = sun60i_isp_params_buf_queue,
+	.stop_streaming = sun60i_isp_meta_stop_streaming,
+};
+
+static const struct vb2_ops sun60i_isp_stats_vb2_ops = {
+	.queue_setup = sun60i_isp_meta_queue_setup,
+	.buf_prepare = sun60i_isp_meta_buf_prepare,
+	.buf_queue = sun60i_isp_stats_buf_queue,
+	.stop_streaming = sun60i_isp_meta_stop_streaming,
+};
+
+static int sun60i_isp_register_meta_node(struct sun60i_isp_dev *isp,
+					 struct sun60i_isp_meta_node *node,
+					 bool is_params)
+{
+	struct video_device *vdev = &node->vdev;
+	struct vb2_queue *q = &node->queue;
+	int ret;
+
+	q->type = is_params ? V4L2_BUF_TYPE_META_OUTPUT :
+			      V4L2_BUF_TYPE_META_CAPTURE;
+	q->io_modes = VB2_MMAP | VB2_DMABUF;
+	q->drv_priv = isp;
+	q->ops = is_params ? &sun60i_isp_params_vb2_ops :
+			     &sun60i_isp_stats_vb2_ops;
+	q->mem_ops = &vb2_vmalloc_memops;
+	q->buf_struct_size = sizeof(struct sun60i_isp_meta_buf);
+	q->timestamp_flags = V4L2_BUF_FLAG_TIMESTAMP_MONOTONIC;
+	q->lock = &node->lock;
+
+	ret = vb2_queue_init(q);
+	if (ret)
+		return ret;
+
+	node->pad.flags = is_params ? MEDIA_PAD_FL_SOURCE : MEDIA_PAD_FL_SINK;
+	ret = media_entity_pads_init(&vdev->entity, 1, &node->pad);
+	if (ret)
+		return ret;
+
+	strscpy(vdev->name, is_params ? "sun60i-isp-params" : "sun60i-isp-stats",
+		sizeof(vdev->name));
+	vdev->vfl_type = VFL_TYPE_VIDEO;
+	vdev->vfl_dir = is_params ? VFL_DIR_TX : VFL_DIR_RX;
+	vdev->device_caps = (is_params ? V4L2_CAP_META_OUTPUT :
+					 V4L2_CAP_META_CAPTURE) |
+			    V4L2_CAP_STREAMING;
+	vdev->release = video_device_release_empty;
+	vdev->fops = &sun60i_isp_meta_fops;
+	vdev->ioctl_ops = is_params ? &sun60i_isp_params_ioctl_ops :
+				      &sun60i_isp_stats_ioctl_ops;
+	vdev->v4l2_dev = isp->subdev.v4l2_dev;
+	vdev->queue = q;
+	vdev->lock = &node->lock;
+	video_set_drvdata(vdev, isp);
+
+	ret = video_register_device(vdev, VFL_TYPE_VIDEO, -1);
+	if (ret) {
+		media_entity_cleanup(&vdev->entity);
+		return ret;
+	}
+
+	if (is_params)
+		ret = media_create_pad_link(&vdev->entity, 0,
+					    &isp->subdev.entity,
+					    SUN60I_ISP_PAD_PARAMS,
+					    MEDIA_LNK_FL_ENABLED |
+					    MEDIA_LNK_FL_IMMUTABLE);
+	else
+		ret = media_create_pad_link(&isp->subdev.entity,
+					    SUN60I_ISP_PAD_STATS,
+					    &vdev->entity, 0,
+					    MEDIA_LNK_FL_ENABLED |
+					    MEDIA_LNK_FL_IMMUTABLE);
+	if (ret) {
+		video_unregister_device(vdev);
+		media_entity_cleanup(&vdev->entity);
+		return ret;
+	}
+
+	node->registered = true;
+	return 0;
+}
+
+static int sun60i_isp_subdev_registered(struct v4l2_subdev *sd)
+{
+	struct sun60i_isp_dev *isp = to_sun60i_isp(sd);
+	int ret;
+
+	ret = sun60i_isp_register_meta_node(isp, &isp->params, true);
+	if (ret)
+		return ret;
+
+	ret = sun60i_isp_register_meta_node(isp, &isp->stats, false);
+	if (ret) {
+		video_unregister_device(&isp->params.vdev);
+		media_entity_cleanup(&isp->params.vdev.entity);
+		isp->params.registered = false;
+		return ret;
+	}
+
+	return 0;
+}
+
+static void sun60i_isp_subdev_unregistered(struct v4l2_subdev *sd)
+{
+	struct sun60i_isp_dev *isp = to_sun60i_isp(sd);
+
+	if (isp->stats.registered) {
+		video_unregister_device(&isp->stats.vdev);
+		media_entity_cleanup(&isp->stats.vdev.entity);
+		isp->stats.registered = false;
+	}
+	if (isp->params.registered) {
+		video_unregister_device(&isp->params.vdev);
+		media_entity_cleanup(&isp->params.vdev.entity);
+		isp->params.registered = false;
+	}
+}
+
+static const struct v4l2_subdev_internal_ops sun60i_isp_internal_ops = {
+	.registered = sun60i_isp_subdev_registered,
+	.unregistered = sun60i_isp_subdev_unregistered,
+};
+
 static int sun60i_isp_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
@@ -340,6 +836,10 @@ static int sun60i_isp_probe(struct platform_device *pdev)
 
 	isp->dev = dev;
 	spin_lock_init(&isp->lock);
+	mutex_init(&isp->params.lock);
+	mutex_init(&isp->stats.lock);
+	INIT_LIST_HEAD(&isp->params.buf_list);
+	INIT_LIST_HEAD(&isp->stats.buf_list);
 
 	isp->variant = of_device_get_match_data(dev);
 
@@ -427,6 +927,7 @@ static int sun60i_isp_probe(struct platform_device *pdev)
 
 	/* Initialize V4L2 Subdevice */
 	v4l2_subdev_init(&isp->subdev, &sun60i_isp_subdev_ops);
+	isp->subdev.internal_ops = &sun60i_isp_internal_ops;
 	isp->subdev.owner = THIS_MODULE;
 	isp->subdev.dev = dev;
 	strscpy(isp->subdev.name, SUN60I_ISP_NAME, sizeof(isp->subdev.name));
@@ -434,6 +935,8 @@ static int sun60i_isp_probe(struct platform_device *pdev)
 
 	isp->pads[SUN60I_ISP_PAD_SINK].flags = MEDIA_PAD_FL_SINK;
 	isp->pads[SUN60I_ISP_PAD_SOURCE].flags = MEDIA_PAD_FL_SOURCE;
+	isp->pads[SUN60I_ISP_PAD_PARAMS].flags = MEDIA_PAD_FL_SINK;
+	isp->pads[SUN60I_ISP_PAD_STATS].flags = MEDIA_PAD_FL_SOURCE;
 	isp->subdev.entity.function = MEDIA_ENT_F_PROC_VIDEO_ISP;
 
 	ret = media_entity_pads_init(&isp->subdev.entity, SUN60I_ISP_NUM_PADS,

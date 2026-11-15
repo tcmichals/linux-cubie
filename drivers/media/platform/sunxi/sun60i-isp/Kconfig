@@ -6,6 +6,7 @@ config VIDEO_SUN60I_ISP
 	select MEDIA_CONTROLLER
 	select VIDEO_V4L2_SUBDEV_API
 	select V4L2_FWNODE
+	select VIDEOBUF2_VMALLOC
 	help
 	  This is a driver for the Allwinner A733 / T527 Hardware Image
 	  Signal Processor (ISP 602).

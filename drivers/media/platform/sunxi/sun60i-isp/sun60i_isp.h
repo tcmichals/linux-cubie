@@ -17,13 +17,31 @@
 #include <linux/platform_device.h>
 #include <linux/reset.h>
 #include <linux/spinlock.h>
+#include <linux/sun60i-isp-config.h>
 #include <media/v4l2-async.h>
 #include <media/v4l2-device.h>
 #include <media/v4l2-subdev.h>
+#include <media/videobuf2-v4l2.h>
 
 #define SUN60I_ISP_PAD_SINK	0
 #define SUN60I_ISP_PAD_SOURCE	1
-#define SUN60I_ISP_NUM_PADS	2
+#define SUN60I_ISP_PAD_PARAMS	2
+#define SUN60I_ISP_PAD_STATS	3
+#define SUN60I_ISP_NUM_PADS	4
+
+struct sun60i_isp_meta_buf {
+	struct vb2_v4l2_buffer vb;
+	struct list_head list;
+};
+
+struct sun60i_isp_meta_node {
+	struct video_device vdev;
+	struct media_pad pad;
+	struct vb2_queue queue;
+	struct mutex lock;
+	struct list_head buf_list;
+	bool registered;
+};
 
 struct sun60i_isp_variant {
 	const char *name;
@@ -54,6 +72,11 @@ struct sun60i_isp_dev {
 	void				*save_load_buf;
 	dma_addr_t			save_load_dma;
 	int				active_load_idx;
+	bool				params_pending;
+	bool				gamma_pending;
+
+	struct sun60i_isp_meta_node	params;
+	struct sun60i_isp_meta_node	stats;
 
 	u32				isp_ver;
 	u64				frame_count;
