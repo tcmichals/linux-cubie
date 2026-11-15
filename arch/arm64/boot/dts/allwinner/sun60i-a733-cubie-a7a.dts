@@ -8,11 +8,13 @@
 
 #include <dt-bindings/interrupt-controller/arm-gic.h>
 #include <dt-bindings/clock/allwinner,sun60i-a733-ccu.h>
+#include <dt-bindings/clock/allwinner,sun60i-a733-cpu-ccu.h>
 #include <dt-bindings/clock/allwinner,sun60i-a733-r-ccu.h>
 #include <dt-bindings/reset/allwinner,sun60i-a733-ccu.h>
 #include <dt-bindings/reset/allwinner,sun60i-a733-r-ccu.h>
 #include <dt-bindings/power/allwinner,sun60i-a733-pck-600.h>
 #include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/thermal/thermal.h>
 
 / {
 	model = "Radxa Cubie A7A";
@@ -155,6 +157,10 @@
 			device_type = "cpu";
 			reg = <0x0 0x0>;
 			enable-method = "psci";
+			clocks = <&cpu_ccu CLK_CPU_L>;
+			operating-points-v2 = <&cpu_l_opp_table>;
+			#cooling-cells = <2>;
+			dynamic-power-coefficient = <162>;
 		};
 
 		cpu1: cpu@100 {
@@ -162,6 +168,10 @@
 			device_type = "cpu";
 			reg = <0x0 0x100>;
 			enable-method = "psci";
+			clocks = <&cpu_ccu CLK_CPU_L>;
+			operating-points-v2 = <&cpu_l_opp_table>;
+			#cooling-cells = <2>;
+			dynamic-power-coefficient = <162>;
 		};
 
 		cpu2: cpu@200 {
@@ -169,6 +179,10 @@
 			device_type = "cpu";
 			reg = <0x0 0x200>;
 			enable-method = "psci";
+			clocks = <&cpu_ccu CLK_CPU_L>;
+			operating-points-v2 = <&cpu_l_opp_table>;
+			#cooling-cells = <2>;
+			dynamic-power-coefficient = <162>;
 		};
 
 		cpu3: cpu@300 {
@@ -176,6 +190,10 @@
 			device_type = "cpu";
 			reg = <0x0 0x300>;
 			enable-method = "psci";
+			clocks = <&cpu_ccu CLK_CPU_L>;
+			operating-points-v2 = <&cpu_l_opp_table>;
+			#cooling-cells = <2>;
+			dynamic-power-coefficient = <162>;
 		};
 
 		cpu4: cpu@400 {
@@ -183,6 +201,10 @@
 			device_type = "cpu";
 			reg = <0x0 0x400>;
 			enable-method = "psci";
+			clocks = <&cpu_ccu CLK_CPU_L>;
+			operating-points-v2 = <&cpu_l_opp_table>;
+			#cooling-cells = <2>;
+			dynamic-power-coefficient = <162>;
 		};
 
 		cpu5: cpu@500 {
@@ -190,6 +212,10 @@
 			device_type = "cpu";
 			reg = <0x0 0x500>;
 			enable-method = "psci";
+			clocks = <&cpu_ccu CLK_CPU_L>;
+			operating-points-v2 = <&cpu_l_opp_table>;
+			#cooling-cells = <2>;
+			dynamic-power-coefficient = <162>;
 		};
 
 		cpu6: cpu@600 {
@@ -197,6 +223,10 @@
 			device_type = "cpu";
 			reg = <0x0 0x600>;
 			enable-method = "psci";
+			clocks = <&cpu_ccu CLK_CPU_B>;
+			operating-points-v2 = <&cpu_b_opp_table>;
+			#cooling-cells = <2>;
+			dynamic-power-coefficient = <598>;
 		};
 
 		cpu7: cpu@700 {
@@ -204,6 +234,50 @@
 			device_type = "cpu";
 			reg = <0x0 0x700>;
 			enable-method = "psci";
+			clocks = <&cpu_ccu CLK_CPU_B>;
+			operating-points-v2 = <&cpu_b_opp_table>;
+			#cooling-cells = <2>;
+			dynamic-power-coefficient = <598>;
+		};
+	};
+
+	cpu_l_opp_table: opp-table-cpu-l {
+		compatible = "operating-points-v2";
+		opp-shared;
+
+		opp-416000000 {
+			opp-hz = /bits/ 64 <416000000>;
+			clock-latency-ns = <244144>;
+		};
+
+		opp-780000000 {
+			opp-hz = /bits/ 64 <780000000>;
+			clock-latency-ns = <244144>;
+		};
+
+		opp-1014000000 {
+			opp-hz = /bits/ 64 <1014000000>;
+			clock-latency-ns = <244144>;
+		};
+	};
+
+	cpu_b_opp_table: opp-table-cpu-b {
+		compatible = "operating-points-v2";
+		opp-shared;
+
+		opp-416000000 {
+			opp-hz = /bits/ 64 <416000000>;
+			clock-latency-ns = <244144>;
+		};
+
+		opp-780000000 {
+			opp-hz = /bits/ 64 <780000000>;
+			clock-latency-ns = <244144>;
+		};
+
+		opp-1014000000 {
+			opp-hz = /bits/ 64 <1014000000>;
+			clock-latency-ns = <244144>;
 		};
 	};
 
@@ -270,18 +344,39 @@
 			polling-delay-passive = <100>;
 			polling-delay = <1000>;
 			thermal-sensors = <&ths 0>;
+			sustainable-power = <914>;
 
 			trips {
-				cpub_hot: trip-hot-90 {
+				cpub_threshold: trip-passive-70 {
+					temperature = <70000>;
+					hysteresis = <2000>;
+					type = "passive";
+				};
+
+				cpub_hot: trip-passive-90 {
 					temperature = <90000>;
 					hysteresis = <2000>;
-					type = "hot";
+					type = "passive";
 				};
 
 				cpub_crit: trip-critical-110 {
 					temperature = <110000>;
 					hysteresis = <2000>;
 					type = "critical";
+				};
+			};
+
+			cooling-maps {
+				map0 {
+					trip = <&cpub_threshold>;
+					cooling-device = <&cpu6 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+							 <&cpu7 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+				};
+
+				map1 {
+					trip = <&cpub_hot>;
+					cooling-device = <&cpu6 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+							 <&cpu7 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
 				};
 			};
 		};
@@ -318,18 +413,47 @@
 			polling-delay-passive = <100>;
 			polling-delay = <1000>;
 			thermal-sensors = <&ths 3>;
+			sustainable-power = <756>;
 
 			trips {
-				cpul_hot: trip-hot-90 {
+				cpul_threshold: trip-passive-70 {
+					temperature = <70000>;
+					hysteresis = <2000>;
+					type = "passive";
+				};
+
+				cpul_hot: trip-passive-90 {
 					temperature = <90000>;
 					hysteresis = <2000>;
-					type = "hot";
+					type = "passive";
 				};
 
 				cpul_crit: trip-critical-110 {
 					temperature = <110000>;
 					hysteresis = <2000>;
 					type = "critical";
+				};
+			};
+
+			cooling-maps {
+				map0 {
+					trip = <&cpul_threshold>;
+					cooling-device = <&cpu0 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+							 <&cpu1 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+							 <&cpu2 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+							 <&cpu3 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+							 <&cpu4 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+							 <&cpu5 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+				};
+
+				map1 {
+					trip = <&cpul_hot>;
+					cooling-device = <&cpu0 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+							 <&cpu1 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+							 <&cpu2 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+							 <&cpu3 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+							 <&cpu4 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+							 <&cpu5 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
 				};
 			};
 		};
@@ -429,6 +553,17 @@
 			clock-names = "hosc", "losc", "iosc", "losc-fanout";
 			#clock-cells = <1>;
 			#reset-cells = <1>;
+		};
+
+		cpu_ccu: clock-controller@8870000 {
+			compatible = "allwinner,sun60i-a733-cpu-ccu";
+			reg = <0x08870000 0x10000>;
+			clocks = <&osc24M>, <&osc32k>, <&iosc>,
+				 <&ccu CLK_PLL_PERIPH0_600M>,
+				 <&ccu CLK_PLL_PERIPH0_2X>;
+			clock-names = "hosc", "losc", "iosc",
+				      "pll-periph0-600m", "pll-periph0-2x";
+			#clock-cells = <1>;
 		};
 
 		wdt: watchdog@2050000 {
