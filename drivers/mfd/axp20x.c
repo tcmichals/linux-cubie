@@ -489,8 +489,6 @@ static const struct regmap_config axp8191_regmap_config = {
 	.reg_bits	= 8,
 	.val_bits	= 8,
 	.max_register	= AXP8191_MAX_REG,
-	.fast_io	= true,
-	.use_raw_spinlock = true,
 	.cache_type	= REGCACHE_NONE,
 };
 
@@ -1396,8 +1394,8 @@ int axp20x_match_device(struct axp20x_dev *axp20x)
 		axp20x->regmap_irq_chip = &axp803_regmap_irq_chip;
 		break;
 	case AXP8191_ID:
-		axp20x->nr_cells = 0;
-		axp20x->cells = NULL;
+		axp20x->nr_cells = ARRAY_SIZE(axp_regulator_only_cells);
+		axp20x->cells = axp_regulator_only_cells;
 		axp20x->regmap_cfg = &axp8191_regmap_config;
 		break;
 	case AXP15060_ID:
