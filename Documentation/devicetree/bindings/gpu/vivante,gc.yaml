@@ -44,7 +44,8 @@ properties:
     maxItems: 4
 
   resets:
-    maxItems: 1
+    minItems: 1
+    maxItems: 3
 
   power-domains:
     maxItems: 1
