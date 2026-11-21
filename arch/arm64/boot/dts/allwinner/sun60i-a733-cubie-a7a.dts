@@ -753,6 +753,21 @@
 			};
 		};
 
+		npu: npu@3600000 {
+			compatible = "vivante,gc";
+			reg = <0x03600000 0x1000>;
+			interrupts = <GIC_SPI 65 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&ccu CLK_MBUS_NPU>,
+				 <&ccu CLK_NPU>,
+				 <&ccu CLK_BUS_NPU>;
+			clock-names = "bus", "core", "reg";
+			resets = <&ccu RST_BUS_NPU_CORE>,
+				 <&ccu RST_BUS_NPU_AXI>,
+				 <&ccu RST_BUS_NPU_AHB>;
+			power-domains = <&pck600 PD_NPU>;
+			#cooling-cells = <2>;
+		};
+
 		mmc0: mmc@4020000 {
 			compatible = "allwinner,sun55i-a523-mmc", "allwinner,sun20i-d1-mmc", "allwinner,sun50i-h616-mmc";
 			reg = <0x04020000 0x1000>;
@@ -1012,6 +1027,13 @@
 				status = "okay";
 
 				regulators {
+					reg_dcdc2: dcdc2 {
+						regulator-name = "vdd-gpu-npu";
+						regulator-min-microvolt = <500000>;
+						regulator-max-microvolt = <1540000>;
+						regulator-always-on;
+					};
+
 					reg_dcdc3: dcdc3 {
 						regulator-name = "vdd-cpub";
 						regulator-min-microvolt = <750000>;
