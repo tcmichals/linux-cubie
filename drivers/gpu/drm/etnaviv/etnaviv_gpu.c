@@ -1905,7 +1905,7 @@ static int etnaviv_gpu_platform_probe(struct platform_device *pdev)
 
 
 	/* Get Reset: */
-	gpu->rst = devm_reset_control_get_optional_exclusive(&pdev->dev, NULL);
+	gpu->rst = devm_reset_control_array_get_optional_exclusive(&pdev->dev);
 	if (IS_ERR(gpu->rst))
 		return dev_err_probe(dev, PTR_ERR(gpu->rst),
 				     "failed to get reset\n");

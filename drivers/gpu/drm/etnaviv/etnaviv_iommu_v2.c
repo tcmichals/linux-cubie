@@ -220,10 +220,16 @@ static void etnaviv_iommuv2_restore_sec(struct etnaviv_gpu *gpu,
 				 	 VIVS_MMUv2_CONFIGURATION_MODE_MODE4_K;
 
 	/* trigger a PTA load through the FE */
+	if (gpu->identity.model == 0x9000 && gpu->identity.revision >= 0x9100)
+		gpu_write(gpu, 0x003b4, 0x2);
+
 	prefetch = etnaviv_buffer_config_pta(gpu, v2_context->id);
 	etnaviv_gpu_start_fe(gpu, (u32)etnaviv_cmdbuf_get_pa(&gpu->buffer),
 			     prefetch);
 	etnaviv_gpu_wait_idle(gpu, 100);
+
+	if (gpu->identity.model == 0x9000 && gpu->identity.revision >= 0x9100)
+		gpu_write(gpu, 0x003b4, 0x1);
 
 	gpu_write(gpu, VIVS_MMUv2_SEC_CONTROL, VIVS_MMUv2_SEC_CONTROL_ENABLE);
 }
