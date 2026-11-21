@@ -18,7 +18,6 @@ static const u8 a733_r_irq_bank_muxes[SUNXI_PINCTRL_MAX_BANKS] = { 14, 14 };
 static struct sunxi_pinctrl_desc a733_r_pinctrl_data = {
 	.irq_banks = ARRAY_SIZE(a733_r_irq_bank_map),
 	.irq_bank_map = a733_r_irq_bank_map,
-	.irq_read_needs_mux = true,
 	.pin_base = PL_BASE,
 };
 
