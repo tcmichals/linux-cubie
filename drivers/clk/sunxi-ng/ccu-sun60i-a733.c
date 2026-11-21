@@ -175,6 +175,9 @@ static const struct clk_hw *pll_periph0_150M_hws[] = {
 };
 static CLK_FIXED_FACTOR_HWS(pll_periph0_160M_clk, "pll-periph0-160M",
 			    pll_periph0_480M_hws, 3, 1, 0);
+static const struct clk_hw *pll_periph0_160M_hws[] = {
+	&pll_periph0_160M_clk.hw
+};
 
 #define SUN60I_A733_PLL_PERIPH1_REG	0x0c0
 static struct ccu_nm pll_periph1_4x_clk = {
@@ -518,10 +521,10 @@ static SUNXI_CCU_GATE_DATA(bus_its_pcie0_aclk_clk, "bus-its-pcie0-aclk", hosc, 0
 
 static const struct clk_parent_data mbus_parents[] = {
 	{ .hw = &sys_24M_clk.hw },
-	{ .hw = &pll_periph1_600M_clk.hw },
+	{ .hw = &pll_periph0_600M_clk.hw },
 	{ .hw = &pll_ddr_clk.common.hw },
-	{ .hw = &pll_periph1_480M_clk.common.hw },
-	{ .hw = &pll_periph1_400M_clk.hw },
+	{ .hw = &pll_periph0_480M_clk.common.hw },
+	{ .hw = &pll_periph0_400M_clk.hw },
 	{ .hw = &pll_npu_clk.common.hw },
 };
 static SUNXI_CCU_M_DATA_WITH_MUX_GATE_FEAT(mbus_clk, "mbus", mbus_parents, 0x588,
@@ -558,6 +561,7 @@ static SUNXI_CCU_GATE_HWS(ahb_de_clk, "ahb-de", ahb_hws,
 			  0x5c0, BIT(5), 0);
 static SUNXI_CCU_GATE_HWS(ahb_npu_clk, "ahb-npu", ahb_hws,
 			  0x5c0, BIT(6), 0);
+static const struct clk_hw *ahb_npu_hws[] = { &ahb_npu_clk.common.hw };
 static SUNXI_CCU_GATE_HWS(ahb_gpu0_clk, "ahb-gpu0", ahb_hws,
 			  0x5c0, BIT(7), 0);
 static SUNXI_CCU_GATE_HWS(ahb_serdes_clk, "ahb-serdes", ahb_hws,
@@ -712,12 +716,13 @@ static SUNXI_CCU_P_DATA_WITH_MUX_GATE(timer9_clk, "timer9", timer_parents, 0x824
 				      0);
 static SUNXI_CCU_GATE_HWS(bus_timer_clk, "bus-timer", ahb_hws, 0x850, BIT(0), 0);
 
-/* Undocumented, taken from the vendor kernel. */
-static const struct clk_parent_data avs_parents[] = {
+static const struct clk_parent_data sys_24M_hosc_parents[] = {
 	{ .hw = &sys_24M_clk.hw },
 	{ .fw_name = "hosc" },
 };
-static SUNXI_CCU_MUX_DATA_WITH_GATE(avs_clk, "avs-clk", avs_parents, 0x880,
+
+/* Undocumented, taken from the vendor kernel. */
+static SUNXI_CCU_MUX_DATA_WITH_GATE(avs_clk, "avs-clk", sys_24M_hosc_parents, 0x880,
 				    24, 3,		/* mux */
 				    BIT(31),		/* gate */
 				    0);
@@ -753,10 +758,10 @@ static SUNXI_CCU_M_HW_WITH_MUX_GATE(di_clk, "di", di_parents, 0xa20,
 static SUNXI_CCU_GATE_HWS(bus_di_clk, "bus-di", ahb_hws, 0xa24, BIT(0), 0);
 
 static const struct clk_hw *g2d_parents[] = {
-	&pll_periph0_400M_clk.hw,
 	&pll_periph0_300M_clk.hw,
+	&pll_periph0_400M_clk.hw,
 	&pll_video0_4x_clk.common.hw,
-	&pll_video1_4x_clk.common.hw,
+	&pll_video2_4x_clk.common.hw,
 };
 static SUNXI_CCU_M_HW_WITH_MUX_GATE(g2d_clk, "g2d", g2d_parents, 0xa40,
 				    0, 5,	/* M */
@@ -849,8 +854,8 @@ static SUNXI_CCU_M_HW_WITH_MUX_GATE(npu_clk, "npu", npu_parents, 0xb00,
 				    0, 5,	/* M */
 				    24, 3,	/* mux */
 				    BIT(31),	/* gate */
-				    0);
-static SUNXI_CCU_GATE_DATA(bus_npu_clk, "bus-npu", hosc, 0xb04, BIT(0), 0);
+				    CLK_SET_RATE_PARENT);
+static SUNXI_CCU_GATE_HWS(bus_npu_clk, "bus-npu", ahb_npu_hws, 0xb04, BIT(0), 0);
 
 /*
  * GPU_CLK = ClockSource * ((16 - M) / 16)
@@ -887,13 +892,13 @@ static SUNXI_CCU_GATE_HWS(bus_gpu0_clk, "bus-gpu0", ahb_hws, 0xb24, BIT(0), 0);
 
 static const struct clk_parent_data dram_parents[] = {
 	{ .hw = &pll_ddr_clk.common.hw, },
-	{ .hw = &pll_periph0_800M_clk.common.hw, },
-	{ .hw = &pll_periph0_600M_clk.hw, },
-	{ .hw = &pll_de_clk.common.hw, },
+	{ .hw = &pll_periph1_800M_clk.common.hw, },
+	{ .hw = &pll_periph1_600M_clk.hw, },
+	{ .hw = &pll_de_3x_clk.common.hw, },
 	{ .hw = &pll_npu_clk.common.hw, },
 };
 static SUNXI_CCU_M_DATA_WITH_MUX_GATE_FEAT(dram0_clk, "dram0", dram_parents, 0xc00,
-					   0, 4,	/* M */
+					   0, 5,	/* M */
 					   24, 3,	/* mux */
 					   BIT(31),	/* gate */
 					   CLK_IS_CRITICAL,
@@ -1075,11 +1080,7 @@ static SUNXI_CCU_DUALDIV_MUX_GATE(spi4_clk, "spi4", spi_parents, 0xf28,
 				  0);
 static SUNXI_CCU_GATE_HWS(bus_spi4_clk, "bus-spi4", ahb_store_hws, 0xf2c, BIT(0), 0);
 
-static const struct clk_parent_data gpadc0_24m_parents[] = {
-	{ .hw = &sys_24M_clk.hw },
-	{ .fw_name = "hosc"},
-};
-static SUNXI_CCU_M_DATA_WITH_MUX_GATE(gpadc0_24m_clk, "gpadc0-24m", gpadc0_24m_parents, 0xfc0,
+static SUNXI_CCU_M_DATA_WITH_MUX_GATE(gpadc0_24m_clk, "gpadc0-24m", sys_24M_hosc_parents, 0xfc0,
 				      0, 5,	/* M */
 				      24, 3,	/* mux */
 				      BIT(31),	/* gate */
@@ -1101,7 +1102,7 @@ static SUNXI_CCU_M_DATA_WITH_MUX_GATE(irrx_clk, "irrx", irrx_parents, 0x1000,
 static SUNXI_CCU_GATE_HWS(bus_irrx_clk, "bus-irrx", apb0_hws, 0x1004, BIT(0), 0);
 
 static const struct clk_parent_data irtx_parents[] = {
-	{ .fw_name = "losc"},
+	{ .hw = &sys_24M_clk.hw },
 	{ .hw = &pll_periph1_600M_clk.hw },
 	{ .fw_name = "hosc"},
 };
@@ -1114,12 +1115,13 @@ static SUNXI_CCU_GATE_HWS(bus_irtx_clk, "bus-irtx", apb0_hws, 0x100c, BIT(0), 0)
 
 static SUNXI_CCU_GATE_HWS(bus_lradc_clk, "bus-lradc", apb0_hws, 0x1024, BIT(0), 0);
 
-/* Undocumented, taken from the vendor kernel. */
-static const struct clk_parent_data sgpio_parents[] = {
-	{ .fw_name = "losc"},
+static const struct clk_parent_data sys_24M_losc_parents[] = {
 	{ .hw = &sys_24M_clk.hw },
+	{ .fw_name = "losc" },
 };
-static SUNXI_CCU_M_DATA_WITH_MUX_GATE(sgpio_clk, "sgpio", sgpio_parents, 0x1060,
+
+/* Undocumented, taken from the vendor kernel. */
+static SUNXI_CCU_M_DATA_WITH_MUX_GATE(sgpio_clk, "sgpio", sys_24M_losc_parents, 0x1060,
 				      0, 5,	/* M */
 				      24, 3,	/* mux */
 				      BIT(31),	/* gate */
@@ -1195,17 +1197,21 @@ static SUNXI_CCU_M_HW_WITH_MUX_GATE(i2spcm4_clk, "i2spcm4", i2spcm_parents, 0x12
 				    0);
 static SUNXI_CCU_GATE_DATA(bus_i2spcm4_clk, "bus-i2spcm4", hosc, 0x124c, BIT(0), 0);
 
-static const struct clk_hw *spdif_tx_parents[] = {
+static const struct clk_hw *audio_parents[] = {
 	&pll_audio0_4x_clk.common.hw,
 	&pll_audio1_div2_clk.hw,
 	&pll_audio1_div5_clk.hw,
 };
-static SUNXI_CCU_M_HW_WITH_MUX_GATE(spdif_tx_clk, "spdif-tx", spdif_tx_parents, 0x1280,
+static SUNXI_CCU_M_HW_WITH_MUX_GATE(spdif_tx_clk, "spdif-tx", audio_parents, 0x1280,
 				    0, 5,	/* M */
 				    24, 3,	/* mux */
 				    BIT(31),	/* gate */
 				    0);
 
+/*
+ * The manual marks mux values 0 and 1 as reserved. The parent list here
+ * is taken from the vendor kernel.
+ */
 static const struct clk_hw *spdif_rx_parents[] = {
 	&pll_periph0_200M_clk.hw,
 	&pll_periph0_300M_clk.hw,
@@ -1219,12 +1225,7 @@ static SUNXI_CCU_M_HW_WITH_MUX_GATE(spdif_rx_clk, "spdif-rx", spdif_rx_parents, 
 
 static SUNXI_CCU_GATE_HWS(bus_spdif_clk, "bus-spdif", apb1_hws, 0x128c, BIT(0), 0);
 
-static const struct clk_hw *dmic_parents[] = {
-	&pll_audio0_4x_clk.common.hw,
-	&pll_audio1_div2_clk.hw,
-	&pll_audio1_div5_clk.hw,
-};
-static SUNXI_CCU_M_HW_WITH_MUX_GATE(dmic_clk, "dmic", dmic_parents, 0x12c0,
+static SUNXI_CCU_M_HW_WITH_MUX_GATE(dmic_clk, "dmic", audio_parents, 0x12c0,
 				    0, 5,	/* M */
 				    24, 3,	/* mux */
 				    BIT(31),	/* gate */
@@ -1285,13 +1286,12 @@ static struct ccu_mux usb_ohci1_clk = {
 static SUNXI_CCU_GATE_HWS(bus_ohci1_clk, "bus-ohci1", ahb_hws, 0x130c, BIT(0), 0);
 static SUNXI_CCU_GATE_HWS(bus_ehci1_clk, "bus-ehci1", ahb_hws, 0x130c, BIT(4), 0);
 
-static const struct clk_parent_data usb01_ref_parents[] = {
-	{ .hw = &sys_24M_clk.hw },
-	{ .fw_name = "hosc" },
-};
-static SUNXI_CCU_MUX_DATA(usb01_ref_clk, "usb01-ref", usb01_ref_parents, 0x1340, 24, 3, 0);
+static SUNXI_CCU_MUX_DATA_WITH_GATE(usb01_ref_clk, "usb01-ref", sys_24M_hosc_parents, 0x1340,
+				    24, 3,	/* mux */
+				    BIT(31),	/* gate */
+				    0);
 
-static SUNXI_CCU_MUX_DATA_WITH_GATE(usb2_u2_ref_clk, "usb2-u2-ref", usb01_ref_parents, 0x1348,
+static SUNXI_CCU_MUX_DATA_WITH_GATE(usb2_u2_ref_clk, "usb2-u2-ref", sys_24M_hosc_parents, 0x1348,
 				    24, 3,	/* mux */
 				    BIT(31),	/* gate */
 				    0);
@@ -1307,24 +1307,19 @@ static SUNXI_CCU_M_DATA_WITH_MUX_GATE(usb2_suspend_clk, "usb2-suspend", usb2_sus
 				      BIT(31),	/* gate */
 				      0);
 
-static const struct clk_parent_data usb2_mf_parents[] = {
+static const struct clk_parent_data usb2_mf_utmi_parents[] = {
 	{ .hw = &sys_24M_clk.hw },
 	{ .hw = &pll_periph0_300M_clk.hw },
 	{ .fw_name = "hosc" },
 };
-static SUNXI_CCU_M_DATA_WITH_MUX_GATE(usb2_mf_clk, "usb2-mf", usb2_mf_parents,
+static SUNXI_CCU_M_DATA_WITH_MUX_GATE(usb2_mf_clk, "usb2-mf", usb2_mf_utmi_parents,
 				      0x1354,
 				      0, 5,	/* M */
 				      24, 3,	/* mux */
 				      BIT(31),	/* gate */
 				      0);
 
-static const struct clk_parent_data usb2_u3_utmi_parents[] = {
-	{ .hw = &sys_24M_clk.hw },
-	{ .hw = &pll_periph0_300M_clk.hw },
-	{ .fw_name = "hosc" },
-};
-static SUNXI_CCU_M_DATA_WITH_MUX_GATE(usb2_u3_utmi_clk, "usb2-u3-utmi", usb2_u3_utmi_parents,
+static SUNXI_CCU_M_DATA_WITH_MUX_GATE(usb2_u3_utmi_clk, "usb2-u3-utmi", usb2_mf_utmi_parents,
 				      0x1360,
 				      0, 5,	/* M */
 				      24, 3,	/* mux */
@@ -1343,11 +1338,7 @@ static SUNXI_CCU_M_DATA_WITH_MUX_GATE(usb2_u2_pipe_clk, "usb2-u2-pipe", usb2_u2_
 				      BIT(31),	/* gate */
 				      0);
 
-static const struct clk_parent_data pcie_aux_parents[] = {
-	{ .hw = &sys_24M_clk.hw },
-	{ .fw_name = "losc" },
-};
-static SUNXI_CCU_M_DATA_WITH_MUX_GATE(pcie_aux_clk, "pcie-aux", pcie_aux_parents, 0x1380,
+static SUNXI_CCU_M_DATA_WITH_MUX_GATE(pcie_aux_clk, "pcie-aux", sys_24M_losc_parents, 0x1380,
 				      0, 5,	/* M */
 				      24, 1,	/* mux */
 				      BIT(31),	/* gate */
@@ -1398,32 +1389,32 @@ static SUNXI_CCU_M_HWS_WITH_GATE(gmac1_phy_clk, "gmac1-phy", pll_periph0_150M_hw
 				 0);
 static SUNXI_CCU_GATE_HWS(bus_gmac1_clk, "bus-gmac1", ahb_hws, 0x142c, BIT(0), 0);
 
-static const struct clk_hw *tcon_lcd_parents[] = {
-	&pll_video0_4x_clk.common.hw,
-	&pll_video1_4x_clk.common.hw,
-	&pll_video2_4x_clk.common.hw,
-	&pll_periph0_2x_clk.common.hw,
+static const struct clk_parent_data display_parents[] = {
+	{ .hw = &pll_video0_4x_clk.common.hw },
+	{ .hw = &pll_video1_4x_clk.common.hw },
+	{ .hw = &pll_video2_4x_clk.common.hw },
+	{ .hw = &pll_periph0_2x_clk.common.hw },
 };
-static SUNXI_CCU_M_HW_WITH_MUX_GATE(tcon_lcd0_clk, "tcon-lcd0", tcon_lcd_parents, 0x1500,
-				    0, 5,	/* M */
-				    24, 3,	/* mux */
-				    BIT(31),	/* gate */
-				    0);
+static SUNXI_CCU_M_DATA_WITH_MUX_GATE(tcon_lcd0_clk, "tcon-lcd0", display_parents, 0x1500,
+				      0, 5,	/* M */
+				      24, 3,	/* mux */
+				      BIT(31),	/* gate */
+				      0);
 static SUNXI_CCU_GATE_HWS(bus_tcon_lcd0_clk, "bus-tcon-lcd0", ahb_hws, 0x1504, BIT(0), 0);
 
-static SUNXI_CCU_M_HW_WITH_MUX_GATE(tcon_lcd1_clk, "tcon-lcd1", tcon_lcd_parents, 0x1508,
-				    0, 5,	/* M */
-				    24, 3,	/* mux */
-				    BIT(31),	/* gate */
-				    0);
+static SUNXI_CCU_M_DATA_WITH_MUX_GATE(tcon_lcd1_clk, "tcon-lcd1", display_parents, 0x1508,
+				      0, 5,	/* M */
+				      24, 3,	/* mux */
+				      BIT(31),	/* gate */
+				      0);
 static SUNXI_CCU_GATE_HWS(bus_tcon_lcd1_clk, "bus-tcon-lcd1", ahb_hws, 0x150c, BIT(0), 0);
 
 /* Undocumented, taken from the vendor kernel. */
-static SUNXI_CCU_M_HW_WITH_MUX_GATE(tcon_lcd2_clk, "tcon-lcd2", tcon_lcd_parents, 0x1510,
-				    0, 5,	/* M */
-				    24, 3,	/* mux */
-				    BIT(31),	/* gate */
-				    0);
+static SUNXI_CCU_M_DATA_WITH_MUX_GATE(tcon_lcd2_clk, "tcon-lcd2", display_parents, 0x1510,
+				      0, 5,	/* M */
+				      24, 3,	/* mux */
+				      BIT(31),	/* gate */
+				      0);
 static SUNXI_CCU_GATE_HWS(bus_tcon_lcd2_clk, "bus-tcon-lcd2", ahb_hws, 0x1514, BIT(0), 0);
 
 static const struct clk_hw *dsi_parents[] = {
@@ -1466,17 +1457,12 @@ static SUNXI_CCU_M_HW_WITH_MUX_GATE(combphy1_clk, "combphy1", combphy_parents, 0
 static SUNXI_CCU_GATE_HWS(bus_tcon_tv0_clk, "bus-tcon-tv0", ahb_hws, 0x1604, BIT(0), 0);
 static SUNXI_CCU_GATE_HWS(bus_tcon_tv1_clk, "bus-tcon-tv1", ahb_hws, 0x160c, BIT(0), 0);
 
-static const struct clk_hw *edp_tv_parents[] = {
-	&pll_video0_4x_clk.common.hw,
-	&pll_video1_4x_clk.common.hw,
-	&pll_video2_4x_clk.common.hw,
-	&pll_periph0_2x_clk.common.hw,
-};
-static SUNXI_CCU_M_HW_WITH_MUX_GATE(edp_tv_clk, "edp-tv", edp_tv_parents, 0x1640,
-				    0, 5,	/* M */
-				    24, 3,	/* mux */
-				    BIT(31),	/* gate */
-				    0);
+static SUNXI_CCU_DUALDIV_MUX_GATE(edp_tv_clk, "edp-tv", display_parents, 0x1640,
+				  0, 5,		/* M */
+				  8, 5,		/* N */
+				  24, 3,	/* mux */
+				  BIT(31),	/* gate */
+				  0);
 static SUNXI_CCU_GATE_HWS(bus_edp_tv_clk, "bus-edp-tv", ahb_hws, 0x164c, BIT(0), 0);
 
 static SUNXI_CCU_GATE_HWS_WITH_PREDIV(hdmi_cec_32k_clk, "hdmi-cec-32k", pll_periph0_2x_hws, 0x1680,
@@ -1489,17 +1475,11 @@ static const struct clk_parent_data hdmi_cec_parents[] = {
 	{ .hw = &hdmi_cec_32k_clk.common.hw },
 };
 static SUNXI_CCU_MUX_DATA_WITH_GATE(hdmi_cec_clk, "hdmi-cec", hdmi_cec_parents, 0x1680,
-				    24, 1,	/* mux */
+				    24, 3,	/* mux */
 				    BIT(31),	/* gate */
 				    0);
 
-static const struct clk_parent_data hdmi_tv_parents[] = {
-	{ .hw = &pll_video0_4x_clk.common.hw },
-	{ .hw = &pll_video1_4x_clk.common.hw },
-	{ .hw = &pll_video2_4x_clk.common.hw },
-	{ .hw = &pll_periph0_2x_clk.common.hw },
-};
-static SUNXI_CCU_DUALDIV_MUX_GATE(hdmi_tv_clk, "hdmi-tv", hdmi_tv_parents, 0x1684,
+static SUNXI_CCU_DUALDIV_MUX_GATE(hdmi_tv_clk, "hdmi-tv", display_parents, 0x1684,
 				  0, 5,		/* M */
 				  8, 5,		/* N */
 				  24, 3,	/* mux */
@@ -1507,12 +1487,8 @@ static SUNXI_CCU_DUALDIV_MUX_GATE(hdmi_tv_clk, "hdmi-tv", hdmi_tv_parents, 0x168
 				  0);
 static SUNXI_CCU_GATE_HWS(bus_hdmi_tv_clk, "bus-hdmi-tv", ahb_hws, 0x168c, BIT(0), 0);
 
-static const struct clk_parent_data hdmi_sfr_parents[] = {
-	{ .hw = &sys_24M_clk.hw },
-	{ .fw_name = "hosc" },
-};
-static SUNXI_CCU_MUX_DATA_WITH_GATE(hdmi_sfr_clk, "hdmi-sfr", hdmi_sfr_parents, 0x1690,
-				    24, 1,	/* mux */
+static SUNXI_CCU_MUX_DATA_WITH_GATE(hdmi_sfr_clk, "hdmi-sfr", sys_24M_hosc_parents, 0x1690,
+				    24, 3,	/* mux */
 				    BIT(31),	/* gate */
 				    0);
 
@@ -1613,10 +1589,10 @@ static SUNXI_CCU_M_DATA_WITH_MUX_GATE(apb2jtag_clk, "apb2jtag", apb2jtag_parents
 static SUNXI_CCU_GATE_HWS(fanout_24M_clk, "fanout-24M", sys_24M_hws, 0x1f30, BIT(0), 0);
 static SUNXI_CCU_GATE_HWS_WITH_PREDIV(fanout_12M_clk, "fanout-12M", sys_24M_hws, 0x1f30,
 				      BIT(1), 2, 0);
-static SUNXI_CCU_GATE_HWS_WITH_PREDIV(fanout_16M_clk, "fanout-16M", pll_periph0_480M_hws, 0x1f30,
-				      BIT(2), 30, 0);
-static SUNXI_CCU_GATE_HWS_WITH_PREDIV(fanout_25M_clk, "fanout-25M", pll_periph0_2x_hws, 0x1f30,
-				      BIT(3), 48, 0);
+static SUNXI_CCU_GATE_HWS_WITH_PREDIV(fanout_16M_clk, "fanout-16M", pll_periph0_160M_hws, 0x1f30,
+				      BIT(2), 10, 0);
+static SUNXI_CCU_GATE_HWS_WITH_PREDIV(fanout_25M_clk, "fanout-25M", pll_periph0_150M_hws, 0x1f30,
+				      BIT(3), 6, 0);
 
 static const struct clk_parent_data fanout_27M_parents[] = {
 	{ .hw = &pll_video0_4x_clk.common.hw },
@@ -2371,8 +2347,8 @@ static const u32 pll_regs[] = {
 static int sun60i_a733_ccu_probe(struct platform_device *pdev)
 {
 	void __iomem *reg;
-	u32 val;
 	int i, ret;
+	u32 val;
 
 	reg = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(reg))
