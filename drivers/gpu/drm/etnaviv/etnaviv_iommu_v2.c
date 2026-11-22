@@ -200,12 +200,6 @@ static void etnaviv_iommuv2_restore_sec(struct etnaviv_gpu *gpu,
 		etnaviv_iommu_context_put(gpu->mmu_context);
 	gpu->mmu_context = etnaviv_iommu_context_get(context);
 
-	gpu_write(gpu, VIVS_MMUv2_PTA_ADDRESS_LOW,
-		  lower_32_bits(context->global->v2.pta_dma));
-	gpu_write(gpu, VIVS_MMUv2_PTA_ADDRESS_HIGH,
-		  upper_32_bits(context->global->v2.pta_dma));
-	gpu_write(gpu, VIVS_MMUv2_PTA_CONTROL, VIVS_MMUv2_PTA_CONTROL_ENABLE);
-
 	gpu_write(gpu, VIVS_MMUv2_NONSEC_SAFE_ADDR_LOW,
 		  lower_32_bits(context->global->bad_page_dma));
 	gpu_write(gpu, VIVS_MMUv2_SEC_SAFE_ADDR_LOW,
@@ -216,20 +210,32 @@ static void etnaviv_iommuv2_restore_sec(struct etnaviv_gpu *gpu,
 		  VIVS_MMUv2_SAFE_ADDRESS_CONFIG_SEC_SAFE_ADDR_HIGH(
 		  upper_32_bits(context->global->bad_page_dma)));
 
+	if (gpu->identity.model == 0x9000 && gpu->identity.revision >= 0x9100) {
+		u32 pd_entry = (u32)(((v2_context->mtlb_dma >> 12) << 4) |
+				     VIVS_MMUv2_CONFIGURATION_MODE_MODE4_K);
+
+		gpu_write(gpu, VIVS_MC_L2_CACHE_CONFIG, 0x00ffffff);
+		gpu_write(gpu, VIVS_HI_COMPRESSION_FLAGS,
+			  gpu_read(gpu, VIVS_HI_COMPRESSION_FLAGS) | BIT(6));
+		gpu_write(gpu, 0x003b4, pd_entry);
+		gpu_write(gpu, VIVS_MMUv2_SEC_CONTROL, 0x21);
+		return;
+	}
+
+	gpu_write(gpu, VIVS_MMUv2_PTA_ADDRESS_LOW,
+		  lower_32_bits(context->global->v2.pta_dma));
+	gpu_write(gpu, VIVS_MMUv2_PTA_ADDRESS_HIGH,
+		  upper_32_bits(context->global->v2.pta_dma));
+	gpu_write(gpu, VIVS_MMUv2_PTA_CONTROL, VIVS_MMUv2_PTA_CONTROL_ENABLE);
+
 	context->global->v2.pta_cpu[v2_context->id] = v2_context->mtlb_dma |
 				 	 VIVS_MMUv2_CONFIGURATION_MODE_MODE4_K;
 
 	/* trigger a PTA load through the FE */
-	if (gpu->identity.model == 0x9000 && gpu->identity.revision >= 0x9100)
-		gpu_write(gpu, 0x003b4, 0x2);
-
 	prefetch = etnaviv_buffer_config_pta(gpu, v2_context->id);
 	etnaviv_gpu_start_fe(gpu, (u32)etnaviv_cmdbuf_get_pa(&gpu->buffer),
 			     prefetch);
 	etnaviv_gpu_wait_idle(gpu, 100);
-
-	if (gpu->identity.model == 0x9000 && gpu->identity.revision >= 0x9100)
-		gpu_write(gpu, 0x003b4, 0x1);
 
 	gpu_write(gpu, VIVS_MMUv2_SEC_CONTROL, VIVS_MMUv2_SEC_CONTROL_ENABLE);
 }

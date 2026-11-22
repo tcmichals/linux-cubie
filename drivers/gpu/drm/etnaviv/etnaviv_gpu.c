@@ -565,6 +565,9 @@ static int etnaviv_hw_reset(struct etnaviv_gpu *gpu)
 		if (gpu->sec_mode == ETNA_SEC_KERNEL) {
 			gpu_write(gpu, VIVS_MMUv2_AHB_CONTROL,
 			          VIVS_MMUv2_AHB_CONTROL_RESET);
+			usleep_range(20, 40);
+			gpu_write(gpu, VIVS_MMUv2_AHB_CONTROL, 0);
+			usleep_range(40, 80);
 		} else {
 			/* set soft reset. */
 			control |= VIVS_HI_CLOCK_CONTROL_SOFT_RESET;
@@ -1435,6 +1438,18 @@ struct dma_fence *etnaviv_gpu_submit(struct etnaviv_gem_submit *submit)
 			event_free(gpu, event[i]);
 
 		goto out_unlock;
+	}
+
+	if (gpu->state == ETNA_GPU_STATE_RUNNING &&
+	    gpu->identity.model == 0x9000 && gpu->identity.revision >= 0x9100 &&
+	    gpu->mmu_context != submit->mmu_context) {
+		etnaviv_buffer_end(gpu);
+		etnaviv_gpu_wait_idle(gpu, 10);
+		etnaviv_hw_reset(gpu);
+		gpu->state = ETNA_GPU_STATE_RESET;
+		etnaviv_gpu_hw_init(gpu);
+		gpu->exec_state = -1;
+		gpu->flush_seq = 0;
 	}
 
 	if (gpu->state == ETNA_GPU_STATE_INITIALIZED)

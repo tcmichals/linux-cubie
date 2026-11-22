@@ -761,9 +761,13 @@
 				 <&ccu CLK_NPU>,
 				 <&ccu CLK_BUS_NPU>;
 			clock-names = "bus", "core", "reg";
+			assigned-clocks = <&ccu CLK_NPU>;
+			assigned-clock-parents = <&ccu CLK_PLL_NPU>;
+			assigned-clock-rates = <420000000>;
 			resets = <&ccu RST_BUS_NPU_CORE>,
 				 <&ccu RST_BUS_NPU_AXI>,
-				 <&ccu RST_BUS_NPU_AHB>;
+				 <&ccu RST_BUS_NPU_AHB>,
+				 <&ccu RST_BUS_NPU_SRAM>;
 			power-domains = <&pck600 PD_NPU>;
 			#cooling-cells = <2>;
 		};

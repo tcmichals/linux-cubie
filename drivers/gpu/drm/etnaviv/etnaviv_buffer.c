@@ -354,7 +354,9 @@ void etnaviv_buffer_queue(struct etnaviv_gpu *gpu, u32 exec_state,
 					    VIVS_MMUv2_CONFIGURATION_FLUSH_FLUSH;
 
 				if (switch_mmu_context &&
-				    gpu->sec_mode == ETNA_SEC_KERNEL) {
+				    gpu->sec_mode == ETNA_SEC_KERNEL &&
+				    !(gpu->identity.model == 0x9000 &&
+				      gpu->identity.revision >= 0x9100)) {
 					unsigned short id =
 						etnaviv_iommuv2_get_pta_id(gpu->mmu_context);
 					CMD_LOAD_STATE(buffer,
@@ -364,6 +366,9 @@ void etnaviv_buffer_queue(struct etnaviv_gpu *gpu, u32 exec_state,
 
 				if (gpu->sec_mode == ETNA_SEC_NONE)
 					flush |= etnaviv_iommuv2_get_mtlb_addr(gpu->mmu_context);
+				else if (gpu->identity.model == 0x9000 &&
+					 gpu->identity.revision >= 0x9100)
+					flush = 0xffffff7f;
 
 				CMD_LOAD_STATE(buffer, VIVS_MMUv2_CONFIGURATION,
 					       flush);
